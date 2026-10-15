@@ -32,6 +32,7 @@ function gfx_triangle(a, b, c, d, e, f) ( stub_draws += 1; );
 function gfx_drawstr(s, f, r, b) ( stub_texts += 1; );
 function gfx_measurestr(s, w, h) ( 0; );
 function gfx_setfont(i, f, s, fl) ( 0; );
+function gfx_getfont(s) ( strcpy(s, stub_font_got); );
 function gfx_getchar() ( stub_key; );
 function gfx_getdropfile(i, s) ( i == 0 && stub_drop ? (strcpy(s, "/samples/Kick 808 long.wav"); 1) : 0; );
 function gfx_showmenu(s) ( stub_menu_shown += 1; 0; );

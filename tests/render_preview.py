@@ -9,6 +9,7 @@ than in REAPER; everything else is the plug-in's own layout.
 """
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -30,6 +31,7 @@ function gfx_line(x, y, x2, y2, aa) ( printf("L\t%f\t%f\t%f\t%f\n", x, y, x2, y2
 function gfx_triangle(a, b, c, d, e, f) ( printf("P\t%f\t%f\t%f\t%f\t%f\t%f\n", a, b, c, d, e, f); );
 function gfx_drawstr(s, f, r, b) ( printf("T\t%f\t%f\t%f\t%f\t%d\t%s\n", gfx_x, gfx_y, r, b, f, s); );
 function gfx_setfont(i, f, s, fl) ( cur_font_sz = s; printf("F\t%f\t%d\n", s, fl == 'b'); );
+function gfx_getfont(s) ( strcpy(s, "Arial"); );
 function gfx_getchar() ( 0; );
 function gfx_getdropfile(i, s) ( 0; );
 function gfx_showmenu(s) ( 0; );
@@ -63,9 +65,9 @@ function synth(src, n, on, f0, decay, click, seed) local(bl, br, i, t, ph, x)
 );
 function frame(name) ( printf("BEGIN\t%s\t%d\t%d\n", name, gfx_w, gfx_h); sec_gfx(); printf("END\n"); );
 
-gfx_ext_retina = 2; gfx_w = 1640; gfx_h = 1200; mouse_x = mouse_y = -1;
+gfx_ext_retina = 2; gfx_w = 1640; gfx_h = 1280; mouse_x = mouse_y = -1;
 attack_ms = 30; xfade_ms = 10; trim_db = 0; match_on = 1; align_on = 1; onset_db = -30;
-result_sel = 0; midi_plays = 0; out_db = 0; thru_on = 1; view_mode = 1;
+result_sel = 0; midi_plays = 0; out_db = 0; thru_on = 1; view_mode = 1; ui_zoom = 1;
 
 frame("empty");
 
@@ -83,19 +85,32 @@ frame("warmup");
 mouse_x = splice_x; mouse_y = rowR_y + 40;
 frame("splice");
 
+// Keyboard focus on a slider, and a message offering Undo.
 mouse_x = mouse_y = -1; play_on = 0; v_on[0] = 0;
+focus_id = 2; strcpy(#status, "Replaced sample B with Punchy Kick 04.wav."); undo_mask = 2;
+frame("keyboard");
+
+// A file that couldn't be read.
+focus_id = 0; s_err[1] = 1; s_len[1] = 0; dirty = 1; status_warn = 1;
+strcpy(#status, "Couldn't read Broken.wav. Drop a WAV, AIFF, FLAC, MP3 or OGG file instead."); strcpy(#nameB, "Broken.wav");
+frame("error");
+s_err[1] = 0; synth(1, 30000, 700, 90, 0.08, 0.9, 1); strcpy(#nameB, "Punchy Kick 04.wav"); strcpy(#status, ""); undo_mask = 0; status_warn = 0; dirty = 1;
+
 view_mode = 0; result_sel = 1; dirty = 1;
 frame("whole");
 
-gfx_ext_retina = 1; gfx_w = 820; gfx_h = 600; view_mode = 1; result_sel = 0; dirty = 1;
+gfx_ext_retina = 1; gfx_w = 820; gfx_h = 640; view_mode = 1; result_sel = 0; dirty = 1;
 frame("small");
+
+// 200% interface size in a window big enough for it.
+ui_zoom = 2; gfx_w = 1640; gfx_h = 1280; dirty = 1;
+frame("zoom200");
 """
 
 
 def adapt(code, maxlen):
     code = run_tests.adapt(code, maxlen)
-    code = code.replace("gfx_measurestr(str, tw, th);", "tw = strlen(str) * cur_font_sz * 0.5; th = cur_font_sz;")
-    code = code.replace("gfx_measurestr(#fit, tw, th);", "tw = strlen(#fit) * cur_font_sz * 0.5; th = cur_font_sz;")
+    code = re.sub(r"gfx_measurestr\(([^,]+), tw, th\);", r"tw = strlen(\1) * cur_font_sz * 0.48; th = cur_font_sz;", code)
     return code
 
 
@@ -150,6 +165,8 @@ def draw(cmds, w, h, path):
                 x = right - tw
             if flags & 4:
                 y = y + (bottom - y - th) / 2
+            elif flags & 8:
+                y = bottom - th
             d.text((x, y), text, font=font, fill=col)
     img.save(path)
 

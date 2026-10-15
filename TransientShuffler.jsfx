@@ -35,7 +35,7 @@ slider2:xfade_ms=10<0.5,100,0.1>-Crossfade (ms)
 slider3:trim_db=0<-24,24,0.1>-Attack trim (dB)
 slider4:match_on=1<0,1,1{Off,On}>-Match level
 slider5:align_on=1<0,1,1{Off,On}>-Align phase
-slider6:onset_db=-30<-60,-6,1>-Onset threshold (dB below peak)
+slider6:onset_db=-30<-60,-6,1>-Hit threshold (dB below peak)
 slider7:result_sel=0<0,1,1{A with B's attack,B with A's attack}>-Result
 slider8:midi_plays=0<0,2,1{The result,Sample A,Sample B}>-MIDI notes play
 slider9:out_db=0<-24,12,0.1>-Output (dB)
@@ -70,6 +70,7 @@ v_src = TABLES; v_pos = v_src + NV; v_gain = v_pos + NV; v_on = v_gain + NV;
 s_L = v_on + NV; s_R = s_L + 4; s_len = s_R + 4; s_on = s_len + 4;
 s_pk = s_on + 4; s_fsr = s_pk + 4; s_nch = s_fsr + 4; s_err = s_nch + 4;
 s_lag = s_err + 4; s_pol = s_lag + 4; s_gain = s_pol + 4;
+FOCUS = s_gain + 4;                       // the window's controls, in Tab order
 
 s_L[0] = A_L;  s_R[0] = A_R;
 s_L[1] = B_L;  s_R[1] = B_R;
@@ -82,8 +83,12 @@ CONTROL = 0xA9AFBA;  C_HOVER = 0xC0C6CF;   C_HELD = 0x8F96A2;
 GROUND = 0x23272E;   SUNKEN = 0x1A1D23;    FRAME_ACT = 0x2A2F37;
 RULE = 0x3A404A;     INK = 0x14171C;       TEXT = 0xDDE1E7;
 DIM = 0x8A919C;      FAINT = 0x6D7581;     ROLL = 0x111419;
-ROW = 0x1C2026;      UNUSED = 0x535A66;    WARN = 0xD2483F;
+ROW = 0x1C2026;      UNUSED = 0x646B77;    WARN = 0xD2483F;
 PLAYHEAD = ACCENT;
+// Text colours that meet Apple's contrast targets on every ground here:
+// LABEL2 (secondary text) 7.3:1, WARN_TEXT (errors) 7.5:1. The house red
+// itself is only 3.4:1 on the ground, so it marks things but isn't text.
+LABEL2 = 0xB0B6C0;   WARN_TEXT = 0xFF9E96;
 
 SPLICE_ID = 100;
 
@@ -223,18 +228,40 @@ function load_slot(slot) local(n)
   );
   s_len[slot] = n;
   s_err[slot] ? (
-    sprintf(#status, "Couldn't read %s. Try WAV, AIFF, FLAC, MP3 or OGG.", slot == 0 ? #nameA : #nameB);
-    status_warn = 1; status_t = time_precise();
+    sprintf(#status, "Couldn't read %s. Drop a WAV, AIFF, FLAC, MP3 or OGG file instead.", slot == 0 ? #nameA : #nameB);
+    status_warn = 1;
   );
   loaded_sr = srate;
   onset_stale = 1;
   dirty = 1;
 );
 
-function clear_slot(slot)
+// Swaps a slot's file for another (or for none), remembering the old one so
+// the change can be undone. Call begin_change() first.
+function begin_change() ( undo_mask = 0; strcpy(#status, ""); status_warn = 0; );
+function replace_slot(slot, path) local(had)
 (
-  slot == 0 ? strcpy(#pathA, "") : strcpy(#pathB, "");
+  slot == 0 ? (
+    had = s_len[0] > 0 || s_err[0]; strcpy(#u_pathA, #pathA); strcpy(#pathA, path);
+  ) : (
+    had = s_len[1] > 0 || s_err[1]; strcpy(#u_pathB, #pathB); strcpy(#pathB, path);
+  );
+  had ? (undo_mask |= slot == 0 ? 1 : 2);
   load_slot(slot);
+  (had && !s_err[slot]) ? (
+    strlen(path) ?
+      sprintf(#status, "Replaced sample %s with %s.", slot == 0 ? "A" : "B", slot == 0 ? #nameA : #nameB) :
+      sprintf(#status, "Cleared sample %s.", slot == 0 ? "A" : "B");
+  );
+);
+
+function clear_slot(slot) ( begin_change(); replace_slot(slot, ""); );
+
+function undo_change() local(m)
+(
+  m = undo_mask; begin_change();
+  (m & 1) ? (strcpy(#pathA, #u_pathA); load_slot(0););
+  (m & 2) ? (strcpy(#pathB, #u_pathB); load_slot(1););
 );
 
 // ---- Analysis ---------------------------------------------------------------------
@@ -394,8 +421,8 @@ function print_result() local(src, n, i, bl, br)
     bl = s_L[src]; br = s_R[src]; i = 0;
     loop(n, SCRATCH[2 * i] = bl[i]; SCRATCH[2 * i + 1] = br[i]; i += 1;);
     export_buffer_to_project(SCRATCH, n, 2, srate, -1, 0);
+    begin_change();
     strcpy(#status, result_sel == 0 ? "Printed A with B's attack as a new item." : "Printed B with A's attack as a new item.");
-    status_warn = 0; status_t = time_precise();
   );
 );
 
@@ -440,10 +467,22 @@ function dashed_frame(x, y, w, h) local(i, d)
 
 function text(str, x, y, w, h, flags) ( gfx_x = x; gfx_y = y; gfx_drawstr(str, flags, x + w, y + h); );
 
-function font_body() ( gfx_setfont(1, "Arial", 14 * S, 0); );
-function font_small() ( gfx_setfont(2, "Arial", 12 * S, 0); );
-function font_label() ( gfx_setfont(3, "Arial", 14 * S, 'b'); );
-function font_title() ( gfx_setfont(4, "Arial", 19 * S, 'b'); );
+// The system's own typeface where there is one: Segoe UI on Windows, San
+// Francisco on macOS, else Arial. gfx_getfont names the face the system
+// actually gave back, so a missing font is caught rather than guessed.
+function pick_font()
+(
+  gfx_setfont(1, "Segoe UI", 14, 0); gfx_getfont(#got);
+  matchi("Segoe UI*", #got) ? strcpy(#ui_font, "Segoe UI") : (
+    gfx_setfont(1, ".AppleSystemUIFont", 14, 0); gfx_getfont(#got);
+    (matchi("*System*", #got) || matchi("*SF*", #got)) ? strcpy(#ui_font, ".AppleSystemUIFont") : strcpy(#ui_font, "Arial");
+  );
+  font_ready = 1;
+);
+// Sizes from Apple's macOS defaults: 13 pt text, nothing under 10 pt.
+function font_body() ( gfx_setfont(1, #ui_font, 14 * S, 0); );
+function font_small() ( gfx_setfont(2, #ui_font, 13 * S, 0); );
+function font_label() ( gfx_setfont(3, #ui_font, 14 * S, 'b'); );
 
 // Draws a string cut short with an ellipsis if it would be wider than w.
 function text_fit(str, x, y, w, h) local(tw, th, n, c)
@@ -466,32 +505,67 @@ function hit(x, y, w, h) ( mouse_x >= x && mouse_x < x + w && mouse_y >= y && mo
 
 function set_hint(str) ( hint_on = 1; strcpy(#hint, str); );
 
-// ---- Controls --------------------------------------------------------------------------
-// A button: light grey with ink, yellow when it is on. Returns 1 when clicked.
-function ui_button(id, x, y, w, h, label, on, enabled) local(hov, hov2, press, clicked, c)
+// ---- Keyboard focus ----------------------------------------------------------------------
+// Every control that can be used registers itself as it is drawn, so Tab
+// moves through them in reading order: top to bottom, left to right.
+function focusable(id) ( FOCUS[fl_n] = id; fl_n = min(fl_n + 1, 63); );
+function focus_ring(x, y, w, h)
 (
+  col(TEXT);
+  gfx_roundrect(x - 3 * S, y - 3 * S, w + 5 * S, h + 5 * S, 6 * S);
+  gfx_roundrect(x - 2 * S, y - 2 * S, w + 3 * S, h + 3 * S, 5 * S);
+);
+// Return or Space presses the focused control.
+function key_activates(id) ( (focus_id == id && (key == 13 || key == 32)) ? (key = 0; 1) : 0; );
+
+// ---- Controls --------------------------------------------------------------------------
+// Where the i-th control goes in the grid (laid out in @gfx).
+function cell_x(i) ( pad + (i % cols) * (cw + cg); );
+function cell_y(i) ( ctrl_y + floor(i / cols) * crow_h; );
+
+// 1: play (a triangle), 2: stop (a square), drawn in the current colour.
+function draw_icon(icon, x, cy) local(r)
+(
+  r = 5 * S;
+  icon == 1 ? gfx_triangle(x, cy - r, x, cy + r, x + 1.8 * r, cy) :
+  icon == 2 ? gfx_rect(x, cy - r + S, 2 * r - 2 * S, 2 * r - 2 * S);
+);
+
+// A button: light grey with ink, yellow when it is on. Returns 1 when
+// clicked, or pressed from the keyboard.
+function ui_button(id, x, y, w, h, label, on, enabled, icon) local(hov, hov2, press, clicked, c, tw, th, iw, x0)
+(
+  enabled ? focusable(id);
   hov = enabled && hit(x, y, w, h);
   (m_click && hov) ? (ui_active = id);
   hov2 = hov && (ui_active == 0 || ui_active == id);
   press = hov && ui_active == id && m_down;
-  clicked = enabled && ui_active == id && m_up && hit(x, y, w, h);
+  clicked = enabled && ((ui_active == id && m_up && hit(x, y, w, h)) || key_activates(id));
   c = on ? (press ? ACC_HELD : (hov2 ? ACC_HOVER : ACCENT)) : (press ? C_HELD : (hov2 ? C_HOVER : CONTROL));
   c = enabled ? c : mix(c, GROUND, 0.35);
   col(c); fill_round(x, y, w, h, 4 * S);
   col(enabled ? INK : mix(INK, c, 0.5)); gfx_roundrect(x, y, w - 1, h - 1, 4 * S);
-  font_body(); text(label, x, y, w, h, 1 | 4);
+  font_body();
+  icon ? (
+    gfx_measurestr(label, tw, th); iw = 9 * S;
+    x0 = x + floor((w - iw - 7 * S - tw) / 2);
+    draw_icon(icon, x0, floor(y + h / 2));
+    text(label, x0 + iw + 7 * S, y, x + w - x0 - iw - 7 * S, h, 4);
+  ) : text(label, x, y, w, h, 1 | 4);
+  focus_id == id ? focus_ring(x, y, w, h);
   clicked;
 );
 
 // A checkbox and its label. Returns the new state.
 function ui_toggle(id, x, y, w, label, on, help) local(hov, bs, bx, by, res)
 (
+  focusable(id);
   bs = 16 * S; bx = x; by = y + floor((28 * S - bs) / 2);
   hov = hit(x, y, w, 28 * S);
-  hov ? set_hint(help);
+  (hov || focus_id == id) ? set_hint(help);
   (m_click && hov) ? (ui_active = id);
   res = on;
-  (ui_active == id && m_up && hov) ? (res = !on);
+  ((ui_active == id && m_up && hov) || key_activates(id)) ? (res = !on);
   col(on ? ACCENT : ((hov && (ui_active == 0 || ui_active == id)) ? C_HOVER : CONTROL));
   fill_round(bx, by, bs, bs, 3 * S);
   col(INK); gfx_roundrect(bx, by, bs - 1, bs - 1, 3 * S);
@@ -502,21 +576,24 @@ function ui_toggle(id, x, y, w, label, on, help) local(hov, bs, bx, by, res)
     gfx_line(bx + 7 * S, by + 12 * S, bx + 12 * S, by + 6 * S, 1);
   );
   font_body(); col(TEXT); text(label, bx + bs + 8 * S, y, w - bs - 8 * S, 28 * S, 4);
+  focus_id == id ? focus_ring(bx, by, bs, bs);
   res;
 );
 
 // A slider with its name and value above it. Click or drag on the track to
-// set it, scroll to nudge, double-click to put it back. Returns the value.
+// set it, scroll or use the arrow keys to nudge (Shift for finer), double-
+// click to put it back. Returns the value.
 function ui_slider(id, x, y, w, label, fmt, val, lo, hi, def, islog, help)
-  local(tx, ty, tw, u, u0, kx, hov, nv, now)
+  local(tx, ty, tw, u, u0, kx, hov, nv, now, k)
 (
-  font_small(); col(DIM); text(label, x, y, w, 16 * S, 4);
+  focusable(id);
+  font_small(); col(LABEL2); text(label, x, y, w, 16 * S, 4);
   sprintf(#sl_txt, fmt, val);
   col(TEXT); text(#sl_txt, x, y, w, 16 * S, 2 | 4);
 
   ty = y + 30 * S; tx = x + 8 * S; tw = max(1, w - 16 * S);
-  hov = hit(x, y + 16 * S, w, 26 * S);
-  (hov || ui_active == id) ? set_hint(help);
+  hov = hit(x, y + 16 * S, w, 28 * S);
+  (hov || ui_active == id || focus_id == id) ? set_hint(help);
   (m_click && hov) ? (
     now = time_precise();
     (now - ui_lastclick < 0.35 && ui_lastid == id) ? (ui_reset = id);
@@ -529,11 +606,18 @@ function ui_slider(id, x, y, w, label, fmt, val, lo, hi, def, islog, help)
       nv = islog ? lo * (hi / lo) ^ u : lo + u * (hi - lo);
     );
   );
-  (hov && mouse_wheel != 0 && ui_active == 0) ? (
+  k = (hov && mouse_wheel != 0 && ui_active == 0) ? (mouse_wheel > 0 ? 2 : -2) : 0;
+  k != 0 ? (mouse_wheel = 0);
+  focus_id == id ? (
+    (key == 'rght' || key == 'up') ? (k = 1; key = 0;);
+    (key == 'left' || key == 'down') ? (k = -1; key = 0;);
+  );
+  k != 0 ? (
     u = islog ? log(val / lo) / log(hi / lo) : (val - lo) / (hi - lo);
-    u = clamp(u + mouse_wheel / 120 * 0.02, 0, 1);
+    u = clamp(u + k * ((mouse_cap & 8) ? 0.001 : 0.01), 0, 1);
     nv = islog ? lo * (hi / lo) ^ u : lo + u * (hi - lo);
-    mouse_wheel = 0;
+    // Always move at least one step of what is shown.
+    floor(nv * 10 + 0.5) / 10 == val ? (nv = clamp(val + sign(k) * 0.1, lo, hi));
   );
   nv = floor(nv * 10 + 0.5) / 10;
 
@@ -545,6 +629,7 @@ function ui_slider(id, x, y, w, label, fmt, val, lo, hi, def, islog, help)
   col(ui_active == id ? C_HELD : ((hov && ui_active == 0) ? C_HOVER : CONTROL));
   gfx_circle(kx, ty, 7 * S, 1, 1);
   col(INK); gfx_circle(kx, ty, 7 * S, 0, 1);
+  focus_id == id ? focus_ring(x - 2 * S, y - 2 * S, w + 4 * S, 46 * S);
   nv;
 );
 
@@ -577,7 +662,8 @@ function build_peaks(v, src, w) local(base, n, on, bl, br, i, a, b, j, step, mn,
 );
 
 // role: 0 = sample A, 1 = sample B, 2 = the result. The parts of A and B
-// that make it into the result are drawn light, the rest dark.
+// that make it into the result are drawn light, the rest dark, and the
+// labels say so in words too.
 function draw_wave(v, src, x, y, w, h, role) local(base, i, n, mid, amp, t, c, ya, yb, px, prov, used, tpp, xa, xb, ok)
 (
   tpp = (view_t1 - view_t0) / w;
@@ -618,18 +704,21 @@ function draw_wave(v, src, x, y, w, h, role) local(base, i, n, mid, amp, t, c, y
     font_small();
     px = x + (att_s - view_t0) / tpp;
     role == 2 ? (
-      (px - x > 64 * S) ? (col(TEXT); text(result_sel == 0 ? "B attack" : "A attack", x + 6 * S, y + 4 * S, px - x - 8 * S, 14 * S, 4););
-      (x + w - px > 64 * S) ? (col(TEXT); text(result_sel == 0 ? "A body" : "B body", px + 6 * S, y + 4 * S, x + w - px - 8 * S, 14 * S, 4););
+      (px - x > 64 * S) ? (col(TEXT); text(result_sel == 0 ? "B attack" : "A attack", x + 6 * S, y + 4 * S, px - x - 8 * S, 16 * S, 4););
+      (x + w - px > 64 * S) ? (col(TEXT); text(result_sel == 0 ? "A body" : "B body", px + 6 * S, y + 4 * S, x + w - px - 8 * S, 16 * S, 4););
     ) : (
-      (px - x > 48 * S) ? (col(role == prov ? TEXT : FAINT); text("attack", x + 6 * S, y + 4 * S, px - x - 8 * S, 14 * S, 4););
-      (x + w - px > 48 * S) ? (col(role == prov ? FAINT : TEXT); text("body", px + 6 * S, y + 4 * S, x + w - px - 8 * S, 14 * S, 4););
+      (px - x > 48 * S) ? (col(role == prov ? TEXT : DIM); text(role == prov ? "attack" : "attack (unused)", x + 6 * S, y + 4 * S, px - x - 8 * S, 16 * S, 4););
+      (x + w - px > 48 * S) ? (col(role == prov ? DIM : TEXT); text(role == prov ? "body (unused)" : "body", px + 6 * S, y + 4 * S, x + w - px - 8 * S, 16 * S, 4););
     );
 
-    // The splice
+    // The splice: white, wider while it can be dragged.
     (px >= x && px < x + w) ? (
-      col(splice_hot ? ACCENT : TEXT);
+      col(TEXT);
       gfx_rect(px - (splice_hot ? S : 0), y, splice_hot ? 3 * S : max(1, S), h);
-      role == 2 ? (fill_round(px - 4 * S, y + h / 2 - 11 * S, 8 * S + 1, 22 * S, 3 * S); col(INK); gfx_roundrect(px - 4 * S, y + h / 2 - 11 * S, 8 * S, 22 * S, 3 * S););
+      role == 2 ? (
+        col(splice_hot ? TEXT : CONTROL); fill_round(px - 5 * S, y + h / 2 - 12 * S, 10 * S + 1, 24 * S, 3 * S);
+        col(INK); gfx_roundrect(px - 5 * S, y + h / 2 - 12 * S, 10 * S, 24 * S, 3 * S);
+      );
     );
 
     // What is sounding
@@ -639,11 +728,19 @@ function draw_wave(v, src, x, y, w, h, role) local(base, i, n, mid, amp, t, c, y
     );
     col(RULE); frame(x, y, w, h);
   ) : (
-    col(RULE); dashed_frame(x, y, w, h);
-    font_body(); col(DIM);
-    text(role == 2 ? "The result appears here once both samples are in." :
-         role == 0 ? "Drop sample A here, or two files at once." : "Drop sample B here.",
-         x, y, w, h, 1 | 4);
+    col(FAINT); dashed_frame(x, y, w, h);
+    font_body();
+    (role < 2 && s_err[role]) ? (
+      col(WARN_TEXT);
+      sprintf(#werr, "Couldn't read %s.", role == 0 ? #nameA : #nameB);
+      text(#werr, x, y, w, h / 2, 1 | 8);
+      col(LABEL2); text("Drop a WAV, AIFF, FLAC, MP3 or OGG file here.", x, y + h / 2 + 4 * S, w, 20 * S, 1);
+    ) : (
+      col(LABEL2);
+      text(role == 2 ? "The result appears here once both samples are in." :
+           role == 0 ? "Drop sample A here, or two files at once." : "Drop sample B here.",
+           x, y, w, h, 1 | 4);
+    );
   );
 );
 
@@ -657,44 +754,47 @@ function draw_ruler(x, y, w) local(span, st, k, n, t, px, tpp)
   font_small();
   while ((t = n * st) <= view_t1 / srate * 1000) (
     px = x + (t * 0.001 * srate - view_t0) / tpp;
-    col(RULE); gfx_rect(px, y, max(1, S), 4 * S);
-    col(DIM);
+    col(FAINT); gfx_rect(px, y, max(1, S), 4 * S);
+    col(LABEL2);
     abs(t) >= 1000 ? sprintf(#rl, "%g s", floor(t / 10 + 0.5) / 100) : sprintf(#rl, "%g ms", floor(t * 10 + 0.5) / 10);
-    text(#rl, px + 3 * S, y, 90 * S, 14 * S, 4);
+    text(#rl, px + 3 * S, y, 90 * S, 16 * S, 4);
     n += 1;
   );
 );
 
-function draw_source_panel(slot, x, y, w, h) local(cs)
+function draw_source_panel(slot, x, y, w, h) local(cs, playing)
 (
-  cs = 26 * S;
+  cs = 28 * S;
   col(CONTROL); fill_round(x, y, cs, cs, 4 * S);
   col(INK); gfx_roundrect(x, y, cs - 1, cs - 1, 4 * S);
   font_label(); text(slot == 0 ? "A" : "B", x, y, cs, cs, 1 | 4);
 
   (s_len[slot] > 0 || s_err[slot]) ? (
     col(TEXT); text_fit(slot == 0 ? #nameA : #nameB, x + cs + 8 * S, y, w - cs - 8 * S, cs);
+    // The whole name, however long, when the pointer is over it.
+    hit(x, y, w, cs) ? set_hint(slot == 0 ? #nameA : #nameB);
   ) : (
-    col(DIM); text(slot == 0 ? "Sample A" : "Sample B", x + cs + 8 * S, y, w - cs - 8 * S, cs, 4);
+    col(LABEL2); text(slot == 0 ? "Sample A" : "Sample B", x + cs + 8 * S, y, w - cs - 8 * S, cs, 4);
   );
 
-  h >= 92 * S ? (
-    font_small();
-    s_err[slot] ? (
-      col(WARN); text("Couldn't read this file.", x, y + cs + 6 * S, w, 16 * S, 4);
-    ) : s_len[slot] > 0 ? (
-      sprintf(#meta, "%s · %g kHz · %.2f s", s_nch[slot] == 1 ? "Mono" : "Stereo", s_fsr[slot] / 1000, s_len[slot] / srate);
-      col(DIM); text_fit(#meta, x, y + cs + 6 * S, w, 16 * S);
-    ) : (
-      col(DIM); text("No sample yet", x, y + cs + 6 * S, w, 16 * S, 4);
-    );
+  font_small();
+  s_err[slot] ? (
+    col(WARN_TEXT); text("Couldn't read this file.", x, y + cs + 6 * S, w, 18 * S, 4);
+  ) : s_len[slot] > 0 ? (
+    sprintf(#meta, "%.2f s · %g kHz%s", s_len[slot] / srate, s_fsr[slot] / 1000, s_nch[slot] == 1 ? " · mono" : "");
+    col(LABEL2); text_fit(#meta, x, y + cs + 6 * S, w, 18 * S);
+  ) : (
+    col(LABEL2); text("No sample yet", x, y + cs + 6 * S, w, 18 * S, 4);
   );
 
-  ui_button(10 + slot, x, y + h - 28 * S, w, 28 * S, slot == 0 ? "Play A" : "Play B", play_on && play_src == slot, s_len[slot] > 0) ? audition(slot);
+  playing = play_on && play_src == slot;
+  ui_button(10 + slot, x, y + 60 * S, w, 28 * S, playing ? "Stop" : (slot == 0 ? "Play A" : "Play B"),
+            playing, s_len[slot] > 0, playing ? 2 : 1) ? (playing ? (ui_stop += 1) : audition(slot));
 );
 
 ui_active = 0;
 view_mode = 1;
+ui_zoom = 1;
 
 @slider
 dirty = 1;
@@ -745,11 +845,14 @@ play_pos = v_pos[last_v];
 file_string(0, #pathA);
 file_string(0, #pathB);
 file_var(0, view_mode);
+file_var(0, ui_zoom);
 file_avail(0) >= 0 ? (need_load = 1);
 
-@gfx 820 600
+@gfx 820 640
 gfx_seen = time_precise();
-S = max(1, gfx_ext_retina);
+!font_ready ? pick_font();
+ui_zoom < 1 ? (ui_zoom = 1);
+S = max(1, gfx_ext_retina) * ui_zoom;
 housekeeping();
 
 key = gfx_getchar();
@@ -757,45 +860,58 @@ m_down = mouse_cap & 1;
 m_click = m_down && !m_last;
 m_up = !m_down && m_last;
 m_last = m_down;
+m_click ? (focus_id = 0);    // pointing takes over from the keyboard
 hint_on = 0;
 cursor = 32512;
+fl_n = 0;
 
-// ---- Layout ------------------------------------------------------------------------------
+// ---- Layout --------------------------------------------------------------------------------
+// Top to bottom: a bar for messages and Options, the controls, then the
+// waveforms. Nothing that matters sits at the bottom edge, which Apple notes
+// often ends up off the screen.
 pad = 16 * S;
-gap = 10 * S;
+gap = 12 * S;
+bar_h = 28 * S;
+cg = 24 * S;
+cols = clamp(floor((gfx_w - 2 * pad + cg) / (170 * S + cg)), 2, 4);
+cw = floor((gfx_w - 2 * pad - (cols - 1) * cg) / cols);
+crow_h = 64 * S;
+ctrl_y = pad + bar_h + 18 * S;
+ctrl_h = ceil(8 / cols) * crow_h - 12 * S;
+sep_y = ctrl_y + ctrl_h + 10 * S;
 labw = 172 * S;
-head_h = 64 * S;
-ctrl_h = 116 * S;
 wx = pad + labw + 16 * S;
 ww = max(16, floor(gfx_w - wx - pad));
-area_y = head_h;
-area_h = max(160 * S, gfx_h - head_h - ctrl_h - pad - 40 * S);
-rh = floor((area_h - 2 * gap) / 3.3);
+area_y = sep_y + 16 * S;
+area_h = max(2 * 88 * S + 132 * S + 2 * gap, gfx_h - area_y - pad - 22 * S);
+rowR_h = max(132 * S, floor((area_h - 2 * gap) * 1.3 / 3.3));
+rh = max(88 * S, floor((area_h - 2 * gap - rowR_h) / 2));
 rowA_y = area_y;              rowA_h = rh;
 rowB_y = rowA_y + rh + gap;   rowB_h = rh;
-rowR_y = rowB_y + rh + gap;   rowR_h = area_h - 2 * (rh + gap);
+rowR_y = rowB_y + rh + gap;
 ruler_y = rowR_y + rowR_h + 4 * S;
-ctrl_y = max(ruler_y + 36 * S, gfx_h - pad - ctrl_h);
 
 col(GROUND); gfx_rect(0, 0, gfx_w, gfx_h);
 
-// ---- Dropped files ------------------------------------------------------------------------
+// ---- Dropped files --------------------------------------------------------------------------
+// One file goes to the row it was dropped on (or the first empty one); two go
+// to A and B. Whatever they replace can be put back with Undo.
 gfx_getdropfile(0, #drop) ? (
+  begin_change();
   gfx_getdropfile(1, #drop2) ? (
-    strcpy(#pathA, #drop); strcpy(#pathB, #drop2);
-    load_slot(0); load_slot(1);
+    replace_slot(0, #drop); replace_slot(1, #drop2);
+    (undo_mask == 3 && !status_warn) ? strcpy(#status, "Replaced both samples.");
   ) : (
     target = hit(0, rowB_y, gfx_w, rowB_h) ? 1 :
              hit(0, rowA_y, gfx_w, rowA_h) ? 0 :
              s_len[0] == 0 ? 0 : s_len[1] == 0 ? 1 : 0;
-    target == 0 ? strcpy(#pathA, #drop) : strcpy(#pathB, #drop);
-    load_slot(target);
+    replace_slot(target, #drop);
   );
   gfx_getdropfile(-1);
   housekeeping();
 );
 
-// ---- What the rows show --------------------------------------------------------------------
+// ---- What the rows show ----------------------------------------------------------------------
 calc_splice();
 ui_active != SPLICE_ID ? (
   view_mode == 0 ? (
@@ -843,45 +959,96 @@ disp_scale = 1 / max(0.001, max(s_pk[0], max(s_pk[1], s_pk[2 + result_sel])));
 any_loaded = s_len[0] > 0 || s_len[1] > 0;
 splice_x = wx + (att_s - view_t0) / (view_t1 - view_t0) * ww;
 splice_hot = ui_active == SPLICE_ID ||
-             (ui_active == 0 && any_loaded && hit(splice_x - 5 * S, rowA_y, 10 * S, rowR_y + rowR_h - rowA_y));
+             (ui_active == 0 && any_loaded && hit(splice_x - 10 * S, rowA_y, 20 * S, rowR_y + rowR_h - rowA_y));
+ready = s_len[2 + result_sel] > 0;
+playing_r = play_on && play_src == 2 + result_sel;
 
-// ---- Header ------------------------------------------------------------------------------------
-font_title(); col(TEXT); text("Transient Shuffler", pad, 14 * S, 400 * S, 24 * S, 4);
+// ---- The bar: messages stay until dismissed, with Undo when it applies --------------------------------
+opt_x = gfx_w - pad - 96 * S;
+status_on = strlen(#status) > 0;
+dis_x = opt_x - 12 * S - 84 * S;
+undo_x = dis_x - 12 * S - 72 * S;
+msg_right = (status_on ? (undo_mask ? undo_x : dis_x) : opt_x) - 12 * S;
+(status_on && undo_mask) ? (ui_button(31, undo_x, pad, 72 * S, bar_h, "Undo", 0, 1, 0) ? undo_change(););
+status_on ? (ui_button(32, dis_x, pad, 84 * S, bar_h, "Dismiss", 0, 1, 0) ? (strcpy(#status, ""); undo_mask = 0;););
 
-ui_button(30, gfx_w - pad - 96 * S, 16 * S, 96 * S, 28 * S, "Options", 0, 1) ? (
-  gfx_x = gfx_w - pad - 96 * S; gfx_y = 44 * S;
-  sprintf(#menu, "%sPass input audio through||%sMIDI notes play the result|%sMIDI notes play sample A|%sMIDI notes play sample B||%sClear sample A|%sClear sample B",
+ui_button(30, opt_x, pad, 96 * S, bar_h, "Options", 0, 1, 0) ? (
+  gfx_x = opt_x; gfx_y = pad + bar_h;
+  sprintf(#menu, "%sPass input audio through||%sMIDI notes play the result|%sMIDI notes play sample A|%sMIDI notes play sample B||%sInterface size 100%%|%sInterface size 125%%|%sInterface size 150%%|%sInterface size 200%%||%sClear sample A|%sClear sample B",
           thru_on ? "!" : "", midi_plays == 0 ? "!" : "", midi_plays == 1 ? "!" : "", midi_plays == 2 ? "!" : "",
+          ui_zoom == 1 ? "!" : "", ui_zoom == 1.25 ? "!" : "", ui_zoom == 1.5 ? "!" : "", ui_zoom == 2 ? "!" : "",
           s_len[0] > 0 || s_err[0] ? "" : "#", s_len[1] > 0 || s_err[1] ? "" : "#");
   menu_sel = gfx_showmenu(#menu);
   menu_sel == 1 ? (thru_on = !thru_on; slider_automate(512);) :
-  menu_sel >= 2 && menu_sel <= 4 ? (midi_plays = menu_sel - 2; slider_automate(128);) :
-  menu_sel == 5 ? clear_slot(0) :
-  menu_sel == 6 ? clear_slot(1);
+  (menu_sel >= 2 && menu_sel <= 4) ? (midi_plays = menu_sel - 2; slider_automate(128);) :
+  (menu_sel >= 5 && menu_sel <= 8) ? (ui_zoom = menu_sel == 5 ? 1 : menu_sel == 6 ? 1.25 : menu_sel == 7 ? 1.5 : 2;) :
+  menu_sel == 9 ? clear_slot(0) :
+  menu_sel == 10 ? clear_slot(1);
 );
+
+// ---- Controls ----------------------------------------------------------------------------------------
+nv = ui_slider(1, cell_x(0), cell_y(0), cw, "Attack length", "%.1f ms", attack_ms, 2, 250, 30, 1,
+               "Attack length: how much of the start is taken from the attack sample.");
+nv != attack_ms ? (attack_ms = nv; slider_automate(1); dirty = 1;);
+
+nv = ui_slider(2, cell_x(1), cell_y(1), cw, "Crossfade", "%.1f ms", xfade_ms, 0.5, 100, 10, 1,
+               "Crossfade: how long the attack takes to blend into the body.");
+nv != xfade_ms ? (xfade_ms = nv; slider_automate(2); dirty = 1;);
+
+nv = ui_slider(3, cell_x(2), cell_y(2), cw, "Attack trim", "%+.1f dB", trim_db, -24, 24, 0, 0,
+               "Attack trim: turns the borrowed attack up or down.");
+nv != trim_db ? (trim_db = nv; slider_automate(4); dirty = 1;);
+
+nv = ui_slider(4, cell_x(3), cell_y(3), cw, "Output", "%+.1f dB", out_db, -24, 12, 0, 0,
+               "Output: the level of what plays here. Printing isn't affected.");
+nv != out_db ? (out_db = nv; slider_automate(256););
+
+nv = ui_slider(5, cell_x(4), cell_y(4), cw, "Hit threshold", "%.0f dB", onset_db, -60, -6, -30, 0,
+               "Hit threshold: how near its peak a sample must get before its hit counts as started.");
+nv = floor(nv + 0.5);
+nv != onset_db ? (onset_db = nv; slider_automate(32); dirty = 1;);
+
+nv = ui_toggle(6, cell_x(5), cell_y(5) + 16 * S, cw, "Match level", match_on,
+               "Match level: sets the borrowed attack to the peak of the attack it replaces.");
+nv != match_on ? (match_on = nv; slider_automate(8); dirty = 1;);
+
+nv = ui_toggle(7, cell_x(6), cell_y(6) + 16 * S, cw, "Align phase", align_on,
+               "Align phase: shifts the body up to 2.5 ms, or flips it, so the two don't cancel at the splice.");
+nv != align_on ? (align_on = nv; slider_automate(16); dirty = 1;);
+
+vx = cell_x(7); vy = cell_y(7);
+font_small(); col(LABEL2); text("View", vx, vy, cw, 16 * S, 4);
+vbw = floor((cw - 12 * S) / 2);
+ui_button(8, vx, vy + 16 * S, vbw, 28 * S, "Attack", view_mode == 1, 1, 0) ? (view_mode = 1);
+ui_button(9, vx + vbw + 12 * S, vy + 16 * S, cw - vbw - 12 * S, 28 * S, "Whole", view_mode == 0, 1, 0) ? (view_mode = 0);
+(hit(vx, vy + 16 * S, cw, 28 * S) || focus_id == 8 || focus_id == 9) ? set_hint("View: zoom in on the splice, or see all of each sound. Scroll over the waveforms to zoom.");
+
+col(RULE); gfx_rect(pad, sep_y, gfx_w - 2 * pad, max(1, S));
 
 // ---- Rows ----------------------------------------------------------------------------------------
 draw_source_panel(0, pad, rowA_y, labw, rowA_h);
 draw_source_panel(1, pad, rowB_y, labw, rowB_h);
 
 font_label(); col(TEXT); text("Result", pad, rowR_y, labw, 22 * S, 4);
-ui_button(20, pad, rowR_y + 28 * S, labw, 26 * S, "A with B's attack", result_sel == 0, 1) ? (result_sel = 0; slider_automate(64););
-ui_button(21, pad, rowR_y + 60 * S, labw, 26 * S, "B with A's attack", result_sel == 1, 1) ? (result_sel = 1; slider_automate(64););
-ready = s_len[2 + result_sel] > 0;
-bw = floor((labw - 8 * S) / 2);
-ui_button(22, pad, rowR_y + rowR_h - 28 * S, bw, 28 * S, "Play", play_on && play_src == 2 + result_sel, ready) ? audition(2 + result_sel);
-ui_button(23, pad + bw + 8 * S, rowR_y + rowR_h - 28 * S, labw - bw - 8 * S, 28 * S, "Print", 0, ready) ? print_result();
-hit(pad + bw + 8 * S, rowR_y + rowR_h - 28 * S, labw - bw - 8 * S, 28 * S) ? set_hint("Add the result to the project as a new item.");
+ui_button(20, pad, rowR_y + 28 * S, labw, 28 * S, "A with B's attack", result_sel == 0, 1, 0) ? (result_sel = 0; slider_automate(64););
+ui_button(21, pad, rowR_y + 64 * S, labw, 28 * S, "B with A's attack", result_sel == 1, 1, 0) ? (result_sel = 1; slider_automate(64););
+bw = floor((labw - 12 * S) / 2);
+ui_button(22, pad, rowR_y + 104 * S, bw, 28 * S, playing_r ? "Stop" : "Play", playing_r, ready, playing_r ? 2 : 1) ?
+  (playing_r ? (ui_stop += 1) : audition(2 + result_sel));
+ui_button(23, pad + bw + 12 * S, rowR_y + 104 * S, labw - bw - 12 * S, 28 * S, "Print", 0, ready, 0) ? print_result();
+(hit(pad + bw + 12 * S, rowR_y + 104 * S, labw - bw - 12 * S, 28 * S) || focus_id == 23) ?
+  set_hint("Print: adds the result to the project as a new item.");
 
 draw_wave(0, 0, wx, rowA_y, ww, rowA_h, 0);
 draw_wave(1, 1, wx, rowB_y, ww, rowB_h, 1);
 draw_wave(2, 2 + result_sel, wx, rowR_y, ww, rowR_h, 2);
 any_loaded ? draw_ruler(wx, ruler_y, ww);
 
-// Clicking a waveform plays it; the splice line drags.
+// Clicking a waveform plays it; the splice line drags (Attack length does
+// the same from the keyboard).
 splice_hot ? (
   cursor = 32644;
-  set_hint("Drag to choose how much of the attack is borrowed.");
+  set_hint("Drag the line to choose how much of the attack is borrowed.");
 ) : (any_loaded && ui_active == 0 && hit(wx, rowA_y, ww, rowR_y + rowR_h - rowA_y)) ? (
   set_hint("Click a waveform to hear it. Scroll to zoom.");
 );
@@ -897,68 +1064,36 @@ splice_hot ? (
   nv != attack_ms ? (attack_ms = nv; slider_automate(1); dirty = 1;);
 );
 
-// ---- Controls ------------------------------------------------------------------------------------
-col(RULE); gfx_rect(pad, ctrl_y - 14 * S, gfx_w - 2 * pad, max(1, S));
-cg = 28 * S;
-cw = floor((gfx_w - 2 * pad - 3 * cg) / 4);
-cx0 = pad; cx1 = cx0 + cw + cg; cx2 = cx1 + cw + cg; cx3 = cx2 + cw + cg;
-cy2 = ctrl_y + 62 * S;
-
-nv = ui_slider(1, cx0, ctrl_y, cw, "Attack length", "%.1f ms", attack_ms, 2, 250, 30, 1,
-               "How much of the start is taken from the attack sample.");
-nv != attack_ms ? (attack_ms = nv; slider_automate(1); dirty = 1;);
-
-nv = ui_slider(2, cx1, ctrl_y, cw, "Crossfade", "%.1f ms", xfade_ms, 0.5, 100, 10, 1,
-               "How long the attack takes to blend into the body.");
-nv != xfade_ms ? (xfade_ms = nv; slider_automate(2); dirty = 1;);
-
-nv = ui_slider(3, cx2, ctrl_y, cw, "Attack trim", "%+.1f dB", trim_db, -24, 24, 0, 0,
-               "Turn the borrowed attack up or down.");
-nv != trim_db ? (trim_db = nv; slider_automate(4); dirty = 1;);
-
-nv = ui_slider(4, cx3, ctrl_y, cw, "Output", "%+.1f dB", out_db, -24, 12, 0, 0,
-               "The level of what plays here. Printing is not affected.");
-nv != out_db ? (out_db = nv; slider_automate(256););
-
-nv = ui_slider(5, cx0, cy2, cw, "Onset threshold", "%.0f dB", onset_db, -60, -6, -30, 0,
-               "How close to its peak a sample must get for its hit to start.");
-nv = floor(nv + 0.5);
-nv != onset_db ? (onset_db = nv; slider_automate(32); dirty = 1;);
-
-nv = ui_toggle(6, cx1, cy2 + 14 * S, cw, "Match level", match_on,
-               "Scale the borrowed attack to the peak of the attack it replaces.");
-nv != match_on ? (match_on = nv; slider_automate(8); dirty = 1;);
-
-nv = ui_toggle(7, cx2, cy2 + 14 * S, cw, "Align phase", align_on,
-               "Slide the body up to 2.5 ms, flipping it if need be, so the splice doesn't cancel.");
-nv != align_on ? (align_on = nv; slider_automate(16); dirty = 1;);
-
-font_small(); col(DIM); text("View", cx3, cy2, cw, 16 * S, 4);
-vbw = floor((cw - 8 * S) / 2);
-ui_button(8, cx3, cy2 + 18 * S, vbw, 26 * S, "Attack", view_mode == 1, 1) ? (view_mode = 1);
-ui_button(9, cx3 + vbw + 8 * S, cy2 + 18 * S, cw - vbw - 8 * S, 26 * S, "Whole", view_mode == 0, 1) ? (view_mode = 0);
-
 // ---- Keys --------------------------------------------------------------------------------------------
-key == 32 ? audition(2 + result_sel) :
-key == 27 ? (ui_stop += 1) :
+// Tab and Shift+Tab move between controls; Return or Space presses one;
+// arrows move a slider. With nothing focused, Space plays or stops the result.
+key == 9 ? (
+  fl_n > 0 ? (
+    cur = -1; i = 0;
+    loop(fl_n, FOCUS[i] == focus_id ? (cur = i); i += 1;);
+    (mouse_cap & 8) ? (cur = cur <= 0 ? fl_n - 1 : cur - 1) : (cur = cur < 0 ? 0 : (cur + 1) % fl_n);
+    focus_id = FOCUS[cur];
+  );
+) :
+key == 27 ? (focus_id = 0; ui_stop += 1;) :
+key == 32 ? (playing_r ? (ui_stop += 1) : audition(2 + result_sel)) :
 key == 49 ? (result_sel = 0; slider_automate(64);) :
 key == 50 ? (result_sel = 1; slider_automate(64);) :
 (key == 97 || key == 65) ? audition(0) :
 (key == 98 || key == 66) ? audition(1);
 
-// ---- The line under the title: what's under the pointer, else what to do --------------------------------------
-font_small();
-status_on = time_precise() - status_t < 4 && strlen(#status);
+// ---- The bar's text: a message, else what's under the pointer, else what to do next ---------------------------
+font_body();
 status_on ? (
-  col(status_warn ? WARN : DIM); text_fit(#status, pad, 40 * S, gfx_w - 2 * pad - 110 * S, 16 * S);
+  col(status_warn ? WARN_TEXT : TEXT); text_fit(#status, pad, pad, msg_right - pad, bar_h);
 ) : hint_on ? (
-  col(DIM); text_fit(#hint, pad, 40 * S, gfx_w - 2 * pad - 110 * S, 16 * S);
+  col(LABEL2); text_fit(#hint, pad, pad, msg_right - pad, bar_h);
 ) : (
-  col(DIM);
-  text(s_len[0] == 0 && s_len[1] == 0 ? "Drop two samples on the window. The result takes A's body and B's attack." :
-       s_len[0] == 0 || s_len[1] == 0 ? "Now drop the other sample." :
-       "Click a waveform to hear it. Drag the line to set the attack length.",
-       pad, 40 * S, gfx_w - 2 * pad - 110 * S, 16 * S, 4);
+  col(LABEL2);
+  text_fit(s_len[0] == 0 && s_len[1] == 0 ? "Drop two samples on the window. The result takes A's body and B's attack." :
+           s_len[0] == 0 || s_len[1] == 0 ? "Now drop the other sample." :
+           "Click a waveform to hear it. Drag the white line to set the attack length.",
+           pad, pad, msg_right - pad, bar_h);
 );
 
 gfx_setcursor(cursor, "arrow");

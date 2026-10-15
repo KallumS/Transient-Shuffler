@@ -21,12 +21,15 @@ Needs REAPER 6.05 or later.
   up to 16 seconds long at 48 kHz.
 - **Choose the result.** *A with B's attack* or *B with A's attack*.
 - **Listen.** Click any waveform, use the Play buttons, or play MIDI notes
-  into the track. Velocity sets the level.
+  into the track. Velocity sets the level. While a sound plays, its Play
+  button becomes Stop.
 - **Set the splice.** Drag the line in the waveforms, or use *Attack length*.
   All three rows share one time axis, lined up on each sample's hit, so you
   can see which part of each sample is used. Parts that are used are drawn
   light and parts that aren't are drawn dark.
 - **Print.** Adds the result to the project as a new item.
+- **Undo.** If you replace or clear a sample by mistake, the message at the
+  top offers Undo. Messages stay until you dismiss them.
 
 Samples are remembered by their file path and load again when you reopen the
 project.
@@ -37,18 +40,26 @@ project.
 | Crossfade | How long the attack takes to blend into the body. |
 | Attack trim | Turns the borrowed attack up or down. |
 | Output | The level of what plays. It doesn't change what gets printed. |
-| Onset threshold | How close to its peak a sample must get before its hit counts as started. |
+| Hit threshold | How close to its peak a sample must get before its hit counts as started. |
 | Match level | Scales the borrowed attack so its peak matches the attack it replaces. |
 | Align phase | Shifts the body by up to 2.5 ms, and flips it if that matches better, so the splice adds up instead of cancelling. |
 | View | *Attack* zooms in on the splice. *Whole* shows everything. Scroll over the waveforms to zoom. |
-| Options | Pass input audio through, choose what MIDI notes play, clear a sample. |
+| Options | Pass input audio through, choose what MIDI notes play, set the interface size (100–200%), clear a sample. |
 
-Keys (when the window has focus): Space plays the result, Esc stops, 1 and 2
-choose the result, A and B play the samples.
+Everything except loading a sample works from the keyboard when the window
+has focus:
+
+- Tab and Shift+Tab move between controls.
+- Return or Space presses the focused control.
+- The arrow keys move a slider, and Shift makes the steps finer.
+- With nothing focused, Space plays or stops the result.
+- Esc stops playback.
+- 1 and 2 choose the result.
+- A and B play the samples.
 
 ## How the swap works
 
-1. Each sample's hit is found: the first moment it gets within the onset
+1. Each sample's hit is found: the first moment it gets within the hit
    threshold of its peak. The two hits are lined up.
 2. Up to the attack length, the result is the attack sample, starting 5 ms
    before the hit so the rise isn't cut.
@@ -61,16 +72,11 @@ choose the result, A and B play the samples.
 
 - **Colours.** The house scheme, from Miderator's `Theme.h`: a dark cool-grey
   background, light grey controls with dark text, one yellow for whatever is
-  on, sounding or being dragged, and red only for errors.
-- **Apple's Human Interface Guidelines.**
-  - The waveforms come first.
-  - You edit by dragging the waveform itself.
-  - Every click gets feedback right away.
-  - Unavailable controls are dimmed, not hidden.
-  - Labels are in plain language, and the line under the title explains
-    whatever is under the pointer.
-  - Light and dark show which parts are used, so it works without colour.
-  - Your original samples are never changed.
+  on, chosen or sounding, and red only for errors. Text meets Apple's
+  contrast targets.
+- **Apple's Human Interface Guidelines.** Checked against all 19 Foundations
+  pages. See [docs/apple-hig-review.md](docs/apple-hig-review.md) for what
+  changed, what was already met, and what a JSFX can't do.
 
 ## Tests
 
@@ -80,7 +86,7 @@ REAPER's calls replaced by stand-ins:
 ```sh
 # build the interpreter once, from https://github.com/justinfrankel/WDL
 cd WDL/eel2 && make NO_GFX=1 MAXLOOP=1048576 loose_eel
-python3 tests/run_tests.py path/to/loose_eel        # 230 checks
+python3 tests/run_tests.py path/to/loose_eel        # 677 checks
 python3 tests/render_preview.py path/to/loose_eel out/   # pictures of the window
 ```
 
@@ -94,7 +100,8 @@ The tests check that:
 - loading converts the sample rate, filters out content above the new
   Nyquist, and folds surround down to stereo;
 - playback, printing and saving with the project work;
-- the window's dragging, clicking and zooming work.
+- the window's dragging, clicking, zooming, keyboard control, Undo and
+  interface sizes work.
 
 Two things only REAPER can confirm: how files are read, and where *Print*
 puts the new item. Print should put it on this track.

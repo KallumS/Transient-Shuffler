@@ -175,14 +175,15 @@ check_hybrid(2, 1, 0, "the result after a drag is exact");
 
 // Drag the Attack length slider all the way right.
 tw = cw - 16;
-mouse_x = cx0 + 8 + 0.1 * tw; mouse_y = ctrl_y + 30; frame();
-mouse_cap = 1; frame(); mouse_x = cx0 + cw + 50; frame(); mouse_cap = 0; frame();
+mouse_x = cell_x(0) + 8 + 0.1 * tw; mouse_y = cell_y(0) + 30; frame();
+mouse_cap = 1; frame(); mouse_x = cell_x(0) + cw + 50; frame(); mouse_cap = 0; frame();
 check(attack_ms == 250, "the slider reaches its top");
 check(stub_automated & 1, "the slider tells REAPER it moved");
-mouse_x = cx0 + cw / 2; frame();
+mouse_x = cell_x(0) + cw / 2; frame();
 mouse_cap = 1; frame(); mouse_cap = 0; frame(); mouse_cap = 1; frame();
 check(attack_ms == 30, "a double-click puts the slider back");
 mouse_cap = 0; frame();
+check(cell_y(7) + 44 < sep_y && sep_y < rowA_y, "the controls sit above the waveforms, none at the bottom");
 
 // Scroll to zoom.
 mouse_x = wx + ww / 2; mouse_y = rowB_y + 10; span = view_t1 - view_t0;
@@ -190,16 +191,22 @@ mouse_wheel = 240; frame();
 check(view_mode == 2 && view_t1 - view_t0 < span, "scrolling up zooms in");
 
 // Click the Align phase box.
-was = align_on; mouse_x = cx2 + 8; mouse_y = cy2 + 14 + 14; mouse_cap = 1; frame(); mouse_cap = 0; frame();
+was = align_on; mouse_x = cell_x(6) + 8; mouse_y = cell_y(6) + 16 + 14; mouse_cap = 1; frame(); mouse_cap = 0; frame();
 check(align_on == !was, "clicking Align phase switches it");
 mouse_cap = 1; frame(); mouse_cap = 0; frame();
 check(align_on == was, "and back");
 
-// Choose the other result, then Play.
-mouse_x = pad + 20; mouse_y = rowR_y + 60 + 10; mouse_cap = 1; frame(); mouse_cap = 0; frame();
+// Choose the other result, then Play, which becomes Stop while it sounds.
+mouse_x = pad + 20; mouse_y = rowR_y + 64 + 10; mouse_cap = 1; frame(); mouse_cap = 0; frame();
 check(result_sel == 1, "the second result can be chosen");
-t0 = ui_trig; mouse_x = pad + 10; mouse_y = rowR_y + rowR_h - 14; mouse_cap = 1; frame(); mouse_cap = 0; frame();
+t0 = ui_trig; mouse_x = pad + 10; mouse_y = rowR_y + 104 + 14; mouse_cap = 1; frame(); mouse_cap = 0; frame();
 check(ui_trig == t0 + 1 && ui_trig_src == 3, "Play plays the chosen result");
+play_on = 1; play_src = 3; st0 = ui_stop; mouse_cap = 1; frame(); mouse_cap = 0; frame();
+check(ui_stop == st0 + 1, "while it sounds, the same button stops it");
+st0 = ui_stop; mouse_x = mouse_y = -1; stub_key = 32; frame(); stub_key = 0;
+check(ui_stop == st0 + 1, "Space stops the result while it sounds");
+play_on = 0; t0 = ui_trig; stub_key = 32; frame(); stub_key = 0;
+check(ui_trig == t0 + 1, "and plays it when it doesn't");
 stub_key = 49; frame(); stub_key = 0;
 check(result_sel == 0, "the 1 key chooses the first result");
 
@@ -207,17 +214,64 @@ check(result_sel == 0, "the 1 key chooses the first result");
 t0 = ui_trig; mouse_x = wx + ww - 20; mouse_y = rowB_y + rowB_h / 2; mouse_cap = 1; frame(); mouse_cap = 0; frame();
 check(ui_trig == t0 + 1 && ui_trig_src == 1, "clicking B's waveform plays B");
 
+// ---- Everything from the keyboard ----
+function press(k) ( stub_key = k; frame(); stub_key = 0; frame(); );
+strcpy(#status, ""); undo_mask = 0; focus_id = 0; mouse_x = mouse_y = -1; frame();
+press(9);
+check(focus_id == 30, "Tab starts at Options, the first control in reading order");
+press(9);
+check(focus_id == 1, "then the first slider");
+before = attack_ms; press('rght');
+check(attack_ms > before, "the right arrow raises a focused slider");
+before = attack_ms; mouse_cap = 8; stub_key = 'left'; frame(); stub_key = 0; mouse_cap = 0; frame();
+check(attack_ms < before && before - attack_ms < 1, "Shift+left lowers it a little");
+mouse_cap = 8; press(9); mouse_cap = 0;
+check(focus_id == 30, "Shift+Tab goes back");
+k = 0; while (focus_id != 6 && k < 40) ( press(9); k += 1; );
+was = match_on; press(13);
+check(focus_id == 6 && match_on == !was, "Return switches a focused checkbox");
+press(32);
+check(match_on == was, "and so does Space");
+k = 0; while (focus_id != 21 && k < 40) ( press(9); k += 1; );
+press(13);
+check(result_sel == 1, "Return presses a focused button");
+press(27);
+check(focus_id == 0, "Esc lets go of the focus");
+k = 0; seen = 0; loop(60, press(9); seen |= focus_id == 22; k += 1;);
+check(seen, "Tab reaches Play");
+press(27); result_sel = 0; frame();
+
+// ---- Interface size ----
+ui_zoom = 2; frame();
+check(S == 2 && cols == 2, "at 200% everything doubles and the controls take two columns");
+gfx_w = 1640; gfx_h = 1400; frame();
+check(rowR_y + rowR_h + 22 * S <= gfx_h, "at 200% a big enough window fits it all");
+ui_zoom = 1; gfx_w = 820; gfx_h = 640; frame();
+
+// ---- Fonts ----
+font_ready = 0; stub_font_got = "Segoe UI"; frame();
+check(strcmp(#ui_font, "Segoe UI") == 0, "Windows gets Segoe UI");
+font_ready = 0; stub_font_got = "System Font Regular"; frame();
+check(strcmp(#ui_font, ".AppleSystemUIFont") == 0, "macOS gets its system font");
+font_ready = 0; stub_font_got = "DejaVu Sans"; frame();
+check(strcmp(#ui_font, "Arial") == 0, "anything else gets Arial");
+
 // Small and large windows.
 gfx_w = 420; gfx_h = 360; frame();
 gfx_w = 2400; gfx_h = 1400; gfx_ext_retina = 2; frame();
-gfx_w = 820; gfx_h = 600; gfx_ext_retina = 1; frame();
+gfx_w = 820; gfx_h = 640; gfx_ext_retina = 1; frame();
 
-// A dropped file that can't be read says so and leaves the slot empty.
+// A dropped file that can't be read says so, in words next to the row too,
+// and the message stays until it is dismissed.
 stub_drop = 1; stub_fh = -1; mouse_x = 300; mouse_y = rowA_y + 20; frame(); stub_drop = 0;
 check(s_err[0] && s_len[0] == 0 && s_len[2] == 0, "an unreadable file is reported");
 check(strcmp(#nameA, "Kick 808 long.wav") == 0, "the file's name is shown without its folder");
-check(status_warn && strlen(#status) > 0, "the reason is shown in red");
-frame();
+check(status_warn && strlen(#status) > 0, "the reason is shown");
+check(undo_mask == 1, "what it replaced can be put back");
+k = 0; loop(20, frame(); k += 1;);
+check(strlen(#status) > 0, "the message doesn't time out");
+mouse_x = dis_x + 10; mouse_y = pad + 10; mouse_cap = 1; frame(); mouse_cap = 0; frame();
+check(strlen(#status) == 0 && undo_mask == 0, "Dismiss clears it");
 
 function make_file(nch, sr, frames, f1, a1, f2, a2) local(i, c)
 (
@@ -273,6 +327,24 @@ function peak_mid(src) ( region_peak(s_L[src], s_L[src], s_len[src], floor(s_len
   stub_rd = 0; gfx_seen = -10;
   stub_rd = 0; sec_block();
   check(need_load == 0 && s_len[0] == 20000, "loading happens even with the window closed");
+);
+
+// ---- Undo (only where files can be made up) ----
+!full_size ? (
+  make_file(2, 48000, 20000, 200, 1, 0, 0);
+  s_len[0] = 0; s_err[0] = 0;
+  begin_change(); replace_slot(0, "/x/First.wav");
+  check(undo_mask == 0 && strlen(#status) == 0, "loading into an empty slot needs no undo");
+  make_file(2, 48000, 30000, 300, 1, 0, 0);
+  begin_change(); replace_slot(0, "/x/Second.wav");
+  check(undo_mask == 1 && strcmp(#status, "Replaced sample A with Second.wav.") == 0, "replacing a sample offers Undo");
+  make_file(2, 48000, 20000, 200, 1, 0, 0);
+  undo_change();
+  check(strcmp(#pathA, "/x/First.wav") == 0 && s_len[0] == 20000 && undo_mask == 0, "Undo puts the first sample back");
+  clear_slot(0);
+  check(s_len[0] == 0 && undo_mask == 1 && strcmp(#status, "Cleared sample A.") == 0, "clearing offers Undo");
+  stub_rd = 0; undo_change();
+  check(s_len[0] == 20000, "and Undo brings it back");
 );
 
 // ---- Memory -------------------------------------------------------------------------
