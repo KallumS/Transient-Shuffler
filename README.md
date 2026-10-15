@@ -105,3 +105,7 @@ The tests check that:
 
 Two things only REAPER can confirm: how files are read, and where *Print*
 puts the new item. Print should put it on this track.
+
+## For whoever works on it next
+
+[`CLAUDE.md`](CLAUDE.md) is the working guide; [`docs/decisions/`](docs/decisions/README.md) holds the reasons behind it, and [`docs/sessions/`](docs/sessions/README.md) a log of each working session.
