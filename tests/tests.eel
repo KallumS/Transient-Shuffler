@@ -1,0 +1,354 @@
+// Driven by run_tests.py, which puts the plug-in's own code (and stubs for
+// REAPER's calls) above this. full_size is 1 when MAXLEN is the real one.
+
+srate = 48000;
+passed = 0; fails = 0;
+function check(ok, name) ( ok ? (passed += 1) : (fails += 1; printf("FAIL: %s\n", name);); );
+
+// A drum hit: a sine sweeping down onto f0, decaying, with an optional click.
+function synth(src, n, on, f0, decay, click, seed) local(bl, br, i, t, ph, x)
+(
+  bl = s_L[src]; br = s_R[src];
+  ph = 0; i = 0;
+  loop(n,
+    t = (i - on) / srate;
+    i < on ? (x = (rand(2) - 1) * 0.0003) : (
+      ph += 2 * $pi * (f0 + 150 * exp(-t / 0.012)) / srate;
+      x = 0.8 * exp(-t / decay) * sin(ph + seed) + click * (rand(2) - 1) * exp(-t / 0.002);
+    );
+    bl[i] = x; br[i] = 0.9 * x;
+    i += 1;
+  );
+  s_len[src] = n;
+);
+
+function copy_sound(dst, src, sign) local(n)
+(
+  n = s_len[src];
+  memcpy(s_L[dst], s_L[src], n); memcpy(s_R[dst], s_R[src], n);
+  sign < 0 ? (
+    i = 0; loop(n, s_L[dst][i] = -s_L[dst][i]; s_R[dst][i] = -s_R[dst][i]; i += 1;);
+  );
+  s_len[dst] = n;
+);
+
+function fresh() ( onset_stale = 1; dirty = 1; housekeeping(); );
+
+// Largest difference between a run of sound d and a run of sound s.
+function max_diff(d, di, s, si, n, gain) local(e, k, dl, sl)
+(
+  e = 0; k = 0; dl = s_L[d]; sl = s_L[s];
+  loop(n, e = max(e, abs(dl[di + k] - gain * sl[si + k])); k += 1;);
+  e;
+);
+
+function max_step(d, i0, n) local(e, k, dl)
+(
+  e = 0; k = 1; dl = s_L[d];
+  loop(n - 1, e = max(e, abs(dl[i0 + k] - dl[i0 + k - 1])); k += 1;);
+  e;
+);
+
+// Every part of a result is what it should be: the attack (scaled), the
+// crossfade without a jump, then the body exactly.
+function check_hybrid(d, a, b, label) local(pre, g, lag, onA, onB, n1, i2, n2, step, stepA, stepB)
+(
+  pre = s_on[d]; g = s_gain[d] * s_pol[d]; lag = s_lag[d];
+  onA = s_on[a]; onB = s_on[b];
+  n1 = pre + s0_s;
+  check(max_diff(d, 0, a, onA - pre, n1, g) < 0.000000001, label);
+  i2 = pre + s0_s + xf_s;
+  n2 = s_len[d] - i2;
+  check(s_len[d] == min(MAXLEN, pre + s_len[b] - onB - lag), label);
+  check(max_diff(d, i2, b, onB + s0_s + xf_s + lag, n2, 1) < 0.000000001, label);
+  step = max_step(d, n1 - 50, xf_s + 100);
+  stepA = abs(g) * max_step(a, onA + s0_s - 50, xf_s + 100);
+  stepB = max_step(b, onB + s0_s + lag - 50, xf_s + 100);
+  smooth_off ? 0 : check(step <= 1.5 * max(stepA, stepB) + 0.02, label);
+);
+
+// ---- Hits found, results put together -------------------------------------
+attack_ms = 30; xfade_ms = 10; trim_db = 0; match_on = 1; align_on = 1; onset_db = -30;
+result_sel = 0; midi_plays = 0; out_db = 0; thru_on = 0;
+
+lenA = full_size ? MAXLEN : 150000;
+synth(0, lenA, 2400, 50, 0.6, 0, 0);       // an 808: no click, long boom
+synth(1, 30000, 700, 90, 0.08, 0.9, 1);    // a punchy kick: a click, short
+fresh();
+
+check(abs(s_on[0] - 2400) < 48, "A's hit found within 1 ms");
+check(abs(s_on[1] - 700) < 48, "B's hit found within 1 ms");
+check(s_len[2] > 0 && s_len[3] > 0, "both results made");
+check_hybrid(2, 1, 0, "A with B's attack is B's attack, a smooth splice, then A's body");
+check_hybrid(3, 0, 1, "B with A's attack is A's attack, a smooth splice, then B's body");
+check(abs(region_peak(s_L[2], s_R[2], s_len[2], 0, s_on[2] + att_s) -
+          region_peak(A_L, A_R, s_len[0], s_on[0] - s_on[2], s_on[0] + att_s)) < 0.000001,
+      "Match level: the borrowed attack peaks where A's own did");
+
+match_on = 0; trim_db = -6; fresh();
+check(abs(s_gain[2] - db2g(-6)) < 0.0000001, "Attack trim without matching is just the trim");
+check_hybrid(2, 1, 0, "trimmed result is still exact");
+match_on = 1; trim_db = 0;
+
+align_on = 0; fresh();
+check(s_lag[2] == 0 && s_pol[2] == 1, "Align off leaves the body where it is");
+check_hybrid(2, 1, 0, "unaligned result is still exact");
+align_on = 1;
+
+// Edge sizes: shortest and longest attack, shortest and longest crossfade.
+attack_ms = 2; xfade_ms = 100; fresh();
+check(xf_s <= 2 * att_s && s0_s >= 0, "a crossfade never starts before the hit");
+check_hybrid(2, 1, 0, "2 ms attack, crossfade clamped");
+attack_ms = 250; xfade_ms = 0.5; fresh();
+check_hybrid(2, 1, 0, "250 ms attack, 0.5 ms crossfade");
+// A loud attack into a quiet body over 0.5 ms drops steeply by design,
+// so this one checks exactness only.
+smooth_off = 1; check_hybrid(3, 0, 1, "250 ms attack, other way"); smooth_off = 0;
+attack_ms = 30; xfade_ms = 10;
+
+// The same sound as its own attack comes back unchanged.
+copy_sound(1, 0, 1); fresh();
+check(s_lag[2] == 0 && s_pol[2] == 1, "a sound matched with itself needs no shift");
+check(max_diff(2, 0, 0, s_on[0] - s_on[2], s_len[2], 1) < 0.0000001, "a sound with its own attack is unchanged");
+
+// Upside down, Align phase flips it back, so the result is the original.
+copy_sound(1, 0, -1); fresh();
+check(s_pol[2] == -1, "Align phase finds the flipped polarity");
+check(max_diff(2, 0, 0, s_on[0] - s_on[2], s_len[2], 1) < 0.0000001, "a flipped attack is flipped back");
+
+// Unrelated noise at the same level: the crossfade holds the power.
+function noise(src, n) local(i) ( i = 0; loop(n, s_L[src][i] = s_R[src][i] = rand(2) - 1; i += 1;); s_len[src] = n; );
+function energy(src, i0, n) local(e, k) ( e = 0; k = 0; loop(n, e += sqr(s_L[src][i0 + k]); k += 1;); e / n; );
+noise(0, 40000); noise(1, 40000); align_on = 0; match_on = 0; attack_ms = 100; xfade_ms = 40; fresh();
+e_mid = energy(2, s_on[2] + s0_s + floor(xf_s / 4), floor(xf_s / 2));
+check(e_mid > 0.27 && e_mid < 0.40, "unrelated sounds keep their level through the crossfade");
+align_on = 1; match_on = 1; attack_ms = 30; xfade_ms = 10;
+
+// Only one sample: no result, nothing to play.
+synth(0, lenA, 2400, 50, 0.6, 0, 0);
+s_len[1] = 0; fresh();
+check(s_len[2] == 0 && s_len[3] == 0, "no result until both samples are in");
+synth(1, 30000, 700, 90, 0.08, 0.9, 1); fresh();
+
+// ---- Playing ----------------------------------------------------------------------
+spl0 = spl1 = 0;
+audition(2); sec_block();
+ok = 1; k = 0;
+loop(5000, spl0 = spl1 = 0; sec_sample(); ok &= abs(spl0 - H1_L[k]) < 0.0000001 && abs(spl1 - H1_R[k]) < 0.0000001; k += 1;);
+check(ok, "Play plays the result, sample for sample");
+check(play_on && play_src == 2, "the window knows what is sounding");
+out_db = -6; sec_block(); spl0 = 0; sec_sample();
+check(abs(spl0 - H1_L[k] * db2g(-6)) < 0.0000001, "Output turns down what plays");
+out_db = 0;
+thru_on = 1; ui_stop += 1; sec_block(); spl0 = 0.25; spl1 = -0.25; sec_sample();
+check(spl0 == 0.25 && spl1 == -0.25, "Stop silences; input passes through");
+thru_on = 0;
+v0 = next_v; loop(NV, start_voice(0, 1, 0););
+check(next_v == v0, "voices are reused in turn");
+
+// ---- Printing -----------------------------------------------------------------------
+stub_export_n = 0; result_sel = 0; print_result();
+check(stub_export_n == s_len[2], "Print hands REAPER the whole result");
+check(SCRATCH[2 * 1000] == H1_L[1000] && SCRATCH[2 * 1000 + 1] == H1_R[1000], "Print interleaves left and right");
+
+// ---- The window ---------------------------------------------------------------------
+gfx_w = 820; gfx_h = 600; gfx_ext_retina = 1; mouse_x = mouse_y = -1; mouse_cap = 0;
+function frame() ( stub_nan = 0; sec_gfx(); check(stub_nan == 0, "nothing drawn at an impossible place"); );
+view_mode = 1; frame(); frame();
+check(stub_draws > 1000, "the window draws");
+check(abs(view_t0 + 0.006 * srate) < 1, "Attack view starts just before the hit");
+view_mode = 0; frame();
+check(view_t1 - view_t0 > s_len[0] - s_on[0], "Whole view fits the longest sound");
+view_mode = 1; frame();
+
+// Drag the splice line to the right.
+before = attack_ms;
+mouse_x = splice_x; mouse_y = rowA_y + 10; frame();
+check(splice_hot && stub_cursor == 32644, "the splice line offers itself to be dragged");
+mouse_cap = 1; frame();
+check(ui_active == SPLICE_ID, "pressing on the splice picks it up");
+mouse_x += 60; frame(); frame();
+check(attack_ms > before + 5, "dragging the splice lengthens the attack");
+mouse_cap = 0; frame(); frame();
+check(ui_active == 0 && dirty == 0, "letting go recomputes the result");
+check_hybrid(2, 1, 0, "the result after a drag is exact");
+
+// Drag the Attack length slider all the way right.
+tw = cw - 16;
+mouse_x = cell_x(0) + 8 + 0.1 * tw; mouse_y = cell_y(0) + 30; frame();
+mouse_cap = 1; frame(); mouse_x = cell_x(0) + cw + 50; frame(); mouse_cap = 0; frame();
+check(attack_ms == 250, "the slider reaches its top");
+check(stub_automated & 1, "the slider tells REAPER it moved");
+mouse_x = cell_x(0) + cw / 2; frame();
+mouse_cap = 1; frame(); mouse_cap = 0; frame(); mouse_cap = 1; frame();
+check(attack_ms == 30, "a double-click puts the slider back");
+mouse_cap = 0; frame();
+check(cell_y(7) + 44 < sep_y && sep_y < rowA_y, "the controls sit above the waveforms, none at the bottom");
+
+// Scroll to zoom.
+mouse_x = wx + ww / 2; mouse_y = rowB_y + 10; span = view_t1 - view_t0;
+mouse_wheel = 240; frame();
+check(view_mode == 2 && view_t1 - view_t0 < span, "scrolling up zooms in");
+
+// Click the Align phase box.
+was = align_on; mouse_x = cell_x(6) + 8; mouse_y = cell_y(6) + 16 + 14; mouse_cap = 1; frame(); mouse_cap = 0; frame();
+check(align_on == !was, "clicking Align phase switches it");
+mouse_cap = 1; frame(); mouse_cap = 0; frame();
+check(align_on == was, "and back");
+
+// Choose the other result, then Play, which becomes Stop while it sounds.
+mouse_x = pad + 20; mouse_y = rowR_y + 64 + 10; mouse_cap = 1; frame(); mouse_cap = 0; frame();
+check(result_sel == 1, "the second result can be chosen");
+t0 = ui_trig; mouse_x = pad + 10; mouse_y = rowR_y + 104 + 14; mouse_cap = 1; frame(); mouse_cap = 0; frame();
+check(ui_trig == t0 + 1 && ui_trig_src == 3, "Play plays the chosen result");
+play_on = 1; play_src = 3; st0 = ui_stop; mouse_cap = 1; frame(); mouse_cap = 0; frame();
+check(ui_stop == st0 + 1, "while it sounds, the same button stops it");
+st0 = ui_stop; mouse_x = mouse_y = -1; stub_key = 32; frame(); stub_key = 0;
+check(ui_stop == st0 + 1, "Space stops the result while it sounds");
+play_on = 0; t0 = ui_trig; stub_key = 32; frame(); stub_key = 0;
+check(ui_trig == t0 + 1, "and plays it when it doesn't");
+stub_key = 49; frame(); stub_key = 0;
+check(result_sel == 0, "the 1 key chooses the first result");
+
+// Clicking a waveform plays it.
+t0 = ui_trig; mouse_x = wx + ww - 20; mouse_y = rowB_y + rowB_h / 2; mouse_cap = 1; frame(); mouse_cap = 0; frame();
+check(ui_trig == t0 + 1 && ui_trig_src == 1, "clicking B's waveform plays B");
+
+// ---- Everything from the keyboard ----
+function press(k) ( stub_key = k; frame(); stub_key = 0; frame(); );
+strcpy(#status, ""); undo_mask = 0; focus_id = 0; mouse_x = mouse_y = -1; frame();
+press(9);
+check(focus_id == 30, "Tab starts at Options, the first control in reading order");
+press(9);
+check(focus_id == 1, "then the first slider");
+before = attack_ms; press('rght');
+check(attack_ms > before, "the right arrow raises a focused slider");
+before = attack_ms; mouse_cap = 8; stub_key = 'left'; frame(); stub_key = 0; mouse_cap = 0; frame();
+check(attack_ms < before && before - attack_ms < 1, "Shift+left lowers it a little");
+mouse_cap = 8; press(9); mouse_cap = 0;
+check(focus_id == 30, "Shift+Tab goes back");
+k = 0; while (focus_id != 6 && k < 40) ( press(9); k += 1; );
+was = match_on; press(13);
+check(focus_id == 6 && match_on == !was, "Return switches a focused checkbox");
+press(32);
+check(match_on == was, "and so does Space");
+k = 0; while (focus_id != 21 && k < 40) ( press(9); k += 1; );
+press(13);
+check(result_sel == 1, "Return presses a focused button");
+press(27);
+check(focus_id == 0, "Esc lets go of the focus");
+k = 0; seen = 0; loop(60, press(9); seen |= focus_id == 22; k += 1;);
+check(seen, "Tab reaches Play");
+press(27); result_sel = 0; frame();
+
+// ---- Interface size ----
+ui_zoom = 2; frame();
+check(S == 2 && cols == 2, "at 200% everything doubles and the controls take two columns");
+gfx_w = 1640; gfx_h = 1400; frame();
+check(rowR_y + rowR_h + 22 * S <= gfx_h, "at 200% a big enough window fits it all");
+ui_zoom = 1; gfx_w = 820; gfx_h = 640; frame();
+
+// ---- Fonts ----
+font_ready = 0; stub_font_got = "Segoe UI"; frame();
+check(strcmp(#ui_font, "Segoe UI") == 0, "Windows gets Segoe UI");
+font_ready = 0; stub_font_got = "System Font Regular"; frame();
+check(strcmp(#ui_font, ".AppleSystemUIFont") == 0, "macOS gets its system font");
+font_ready = 0; stub_font_got = "DejaVu Sans"; frame();
+check(strcmp(#ui_font, "Arial") == 0, "anything else gets Arial");
+
+// Small and large windows.
+gfx_w = 420; gfx_h = 360; frame();
+gfx_w = 2400; gfx_h = 1400; gfx_ext_retina = 2; frame();
+gfx_w = 820; gfx_h = 640; gfx_ext_retina = 1; frame();
+
+// A dropped file that can't be read says so, in words next to the row too,
+// and the message stays until it is dismissed.
+stub_drop = 1; stub_fh = -1; mouse_x = 300; mouse_y = rowA_y + 20; frame(); stub_drop = 0;
+check(s_err[0] && s_len[0] == 0 && s_len[2] == 0, "an unreadable file is reported");
+check(strcmp(#nameA, "Kick 808 long.wav") == 0, "the file's name is shown without its folder");
+check(status_warn && strlen(#status) > 0, "the reason is shown");
+check(undo_mask == 1, "what it replaced can be put back");
+k = 0; loop(20, frame(); k += 1;);
+check(strlen(#status) > 0, "the message doesn't time out");
+mouse_x = dis_x + 10; mouse_y = pad + 10; mouse_cap = 1; frame(); mouse_cap = 0; frame();
+check(strlen(#status) == 0 && undo_mask == 0, "Dismiss clears it");
+
+function make_file(nch, sr, frames, f1, a1, f2, a2) local(i, c)
+(
+  i = 0;
+  loop(frames,
+    c = 0;
+    loop(nch, stub_src[i * nch + c] = (c + 1) * 0.1 * (a1 * sin(2 * $pi * f1 * i / sr) + a2 * sin(2 * $pi * f2 * i / sr)); c += 1;);
+    i += 1;
+  );
+  stub_nch = nch; stub_sr = sr; stub_avail = frames * nch; stub_rd = 0;
+);
+function crossings(src) local(n, k, z) ( n = s_len[src]; z = 0; k = 1; loop(n - 1, (s_L[src][k - 1] < 0) != (s_L[src][k] < 0) ? z += 1; k += 1;); z; );
+function peak_mid(src) ( region_peak(s_L[src], s_L[src], s_len[src], floor(s_len[src] / 4), floor(3 * s_len[src] / 4)); );
+
+
+// ---- Loading (only where there is room for a made-up file) ------------------------
+!full_size ? (
+  stub_src = 4000000; stub_fh = 1;
+  // 44.1 kHz stereo, 1 kHz: comes in at 48 kHz, same pitch, same level.
+  make_file(2, 44100, 44100, 1000, 1, 0, 0);
+  strcpy(#pathA, "C:\\Samples\\Sine 1k.wav"); load_slot(0);
+  check(abs(s_len[0] - 48000) <= 1, "44.1 kHz comes in at 48 kHz, as long as it was");
+  check(abs(crossings(0) - 2000) <= 2, "and at the same pitch");
+  check(abs(peak_mid(0) - 0.1) < 0.002 && abs(region_peak(s_R[0], s_R[0], s_len[0], 1000, 40000) - 0.2) < 0.004, "left and right kept apart, level kept");
+  check(strcmp(#nameA, "Sine 1k.wav") == 0 && !s_err[0], "Windows paths lose their folder too");
+  check(s_fsr[0] == 44100 && s_nch[0] == 2, "the file's own rate and channels are remembered");
+
+  // 96 kHz: 1 kHz passes, 30 kHz (which would fold down to 18 kHz) doesn't.
+  make_file(1, 96000, 96000, 1000, 1, 0, 0); load_slot(0);
+  check(abs(s_len[0] - 48000) <= 1 && abs(peak_mid(0) - 0.1) < 0.002, "96 kHz comes down at the same level");
+  check(max_diff(0, 0, 0, 0, 1, 1) == 0 && s_L[0][5000] == s_R[0][5000], "mono goes to both sides");
+  make_file(1, 96000, 96000, 30000, 1, 0, 0); load_slot(0);
+  check(peak_mid(0) < 0.01, "content above the new Nyquist is filtered out, not folded down");
+
+  // 5.1: odd channels left, even right, averaged.
+  make_file(6, 48000, 10000, 500, 1, 0, 0); load_slot(0);
+  check(abs(s_L[0][123] - (0.1 + 0.3 + 0.5) / 3 * sin(2 * $pi * 500 * 123 / 48000)) < 0.000001, "surround folds down (left)");
+  check(abs(s_R[0][123] - (0.2 + 0.4 + 0.6) / 3 * sin(2 * $pi * 500 * 123 / 48000)) < 0.000001, "surround folds down (right)");
+
+  // Too long: cut at MAXLEN.
+  make_file(1, 48000, MAXLEN + 5000, 100, 1, 0, 0); load_slot(0);
+  check(s_len[0] == MAXLEN, "a long file is cut at the limit");
+
+  // An empty file is an error, not a crash.
+  stub_avail = 0; load_slot(0);
+  check(s_len[0] == 0 && s_err[0], "an empty file is reported");
+
+  // A project reopening: the paths come back and both samples load.
+  make_file(2, 48000, 20000, 200, 1, 0, 0);
+  strcpy(#pathA, "/a.wav"); strcpy(#pathB, "/b.wav");
+  stub_avail = 40000; sec_serialize();
+  check(need_load == 1, "reopening a project asks for the samples to load");
+  stub_rd = 0; gfx_seen = -10;
+  stub_rd = 0; sec_block();
+  check(need_load == 0 && s_len[0] == 20000, "loading happens even with the window closed");
+);
+
+// ---- Undo (only where files can be made up) ----
+!full_size ? (
+  make_file(2, 48000, 20000, 200, 1, 0, 0);
+  s_len[0] = 0; s_err[0] = 0;
+  begin_change(); replace_slot(0, "/x/First.wav");
+  check(undo_mask == 0 && strlen(#status) == 0, "loading into an empty slot needs no undo");
+  make_file(2, 48000, 30000, 300, 1, 0, 0);
+  begin_change(); replace_slot(0, "/x/Second.wav");
+  check(undo_mask == 1 && strcmp(#status, "Replaced sample A with Second.wav.") == 0, "replacing a sample offers Undo");
+  make_file(2, 48000, 20000, 200, 1, 0, 0);
+  undo_change();
+  check(strcmp(#pathA, "/x/First.wav") == 0 && s_len[0] == 20000 && undo_mask == 0, "Undo puts the first sample back");
+  clear_slot(0);
+  check(s_len[0] == 0 && undo_mask == 1 && strcmp(#status, "Cleared sample A.") == 0, "clearing offers Undo");
+  stub_rd = 0; undo_change();
+  check(s_len[0] == 20000, "and Undo brings it back");
+);
+
+// ---- Memory -------------------------------------------------------------------------
+check(s_gain + 4 < 8388608, "everything fits in a JSFX's memory");
+
+printf("%s: %d passed, %d failed\n", full_size ? "full size" : "small", passed, fails);
+fails == 0 ? printf("ALL PASSED\n");
