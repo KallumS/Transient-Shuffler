@@ -11,7 +11,7 @@ replaced it.
 | | | |
 | --- | --- | --- |
 | [0001](0001-a-jsfx.md) | A JSFX, not a ReaScript or a compiled plug-in | Accepted |
-| [0002](0002-line-up-the-hits-and-swap-whole-sections.md) | Line up the hits and swap whole sections of sound | Accepted |
+| [0002](0002-line-up-the-hits-and-swap-whole-sections.md) | Line up the hits and swap whole sections of sound | Accepted; crossfade placement replaced by 0012 |
 | [0003](0003-a-crossfade-that-holds-its-level.md) | A crossfade that holds its level, and lines the two up first | Accepted |
 | [0004](0004-match-the-attack-it-replaces.md) | Match level means the attack it replaces | Accepted |
 | [0005](0005-samples-in-memory-at-the-projects-rate.md) | Samples are held in memory at the project's rate; only their paths are saved | Accepted |
@@ -21,3 +21,5 @@ replaced it.
 | [0009](0009-the-house-colours-always-dark.md) | The house colours, always dark | Accepted; added to by 0010 |
 | [0010](0010-apples-hig-foundations.md) | Apple's HIG Foundations are the standard for the window | Accepted |
 | [0011](0011-apples-pages-stay-out-of-the-repository.md) | Apple's guideline pages stay out of the repository | Accepted |
+| [0012](0012-find-where-the-attack-ends.md) | Find where each attack ends, and keep all of it | Accepted |
+| [0013](0013-snap-to-zero-crossings.md) | Snap to zero crossings, both sounds at once | Accepted |

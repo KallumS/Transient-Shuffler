@@ -23,10 +23,17 @@ Needs REAPER 6.05 or later.
 - **Listen.** Click any waveform, use the Play buttons, or play MIDI notes
   into the track. Velocity sets the level. While a sound plays, its Play
   button becomes Stop.
-- **Set the splice.** Drag the line in the waveforms, or use *Attack length*.
-  All three rows share one time axis, lined up on each sample's hit, so you
-  can see which part of each sample is used. Parts that are used are drawn
-  light and parts that aren't are drawn dark.
+- **Set the splice.** *Find attack* (on to start with) measures where the
+  attack sample's attack ends and splices there. Attack length then shows
+  what it found, and a mark under each sample shows where its own attack
+  ends. To choose the splice yourself, drag the line in the waveforms or
+  move *Attack length*, which turns Find attack off. All three rows share
+  one time axis, lined up on each sample's hit, so you can see which part of
+  each sample is used. Parts that are used are drawn light and parts that
+  aren't are drawn dark.
+- **Snap to zero crossings.** Turn this on to move the splice up to 5 ms, to
+  where both sounds cross zero together, so the join can't click. Attack
+  length then shows where it moved to, for example "31.3 → 29.9 ms".
 - **Print.** Adds the result to the project as a new item.
 - **Undo.** If you replace or clear a sample by mistake, the message at the
   top offers Undo. Messages stay until you dismiss them.
@@ -36,11 +43,13 @@ project.
 
 | Control | What it does |
 | --- | --- |
-| Attack length | How much of the start comes from the attack sample. |
+| Attack length | How much of the start comes from the attack sample. It shows ", found" when Find attack set it. |
 | Crossfade | How long the attack takes to blend into the body. |
 | Attack trim | Turns the borrowed attack up or down. |
 | Output | The level of what plays. It doesn't change what gets printed. |
 | Hit threshold | How close to its peak a sample must get before its hit counts as started. |
+| Find attack | Measures where the attack sample's attack ends, and splices there. If it can't find an end (a slow swell, for example), Attack length is used. |
+| Snap to zero crossings | Moves the splice up to 5 ms, to where both sounds cross zero together. |
 | Match level | Scales the borrowed attack so its peak matches the attack it replaces. |
 | Align phase | Shifts the body by up to 2.5 ms, and flips it if that matches better, so the splice adds up instead of cancelling. |
 | View | *Attack* zooms in on the splice. *Whole* shows everything. Scroll over the waveforms to zoom. |
@@ -62,10 +71,16 @@ has focus:
 1. Each sample's hit is found: the first moment it gets within the hit
    threshold of its peak. The two hits are lined up.
 2. Up to the attack length, the result is the attack sample, starting 5 ms
-   before the hit so the rise isn't cut.
-3. At the attack length the two samples crossfade. The shape of the
-   crossfade depends on how similar the two are at that point, so the level
-   stays even whether they are alike or not.
+   before the hit so the rise isn't cut. With *Find attack* on, the attack
+   length is where that sample's attack ends. That is the earlier of two
+   moments:
+   - its level stops falling fast and settles into the body;
+   - its sound above 2.5 kHz (the click or pick) fades 20 dB.
+3. From the attack length the two samples crossfade, so all of the attack is
+   kept. The shape of the crossfade depends on how similar the two are at
+   that point, so the level stays even whether they are alike or not. With
+   *Snap to zero crossings* on, the crossfade starts where both sounds cross
+   zero.
 4. After the crossfade, the result is the body sample, unchanged.
 
 ## Design
@@ -86,13 +101,15 @@ REAPER's calls replaced by stand-ins:
 ```sh
 # build the interpreter once, from https://github.com/justinfrankel/WDL
 cd WDL/eel2 && make NO_GFX=1 MAXLOOP=1048576 loose_eel
-python3 tests/run_tests.py path/to/loose_eel        # 677 checks
+python3 tests/run_tests.py path/to/loose_eel        # 797 checks
 python3 tests/render_preview.py path/to/loose_eel out/   # pictures of the window
 ```
 
 The tests check that:
 
-- each hit is found;
+- each hit is found, and where each attack ends (a kick's click, a pluck's
+  pick, a snare's crack; nothing for a slow swell);
+- snapping moves the splice to where both sounds are nearer zero;
 - the attack, the crossfade and the body all come out exactly right;
 - a sample given its own attack comes back unchanged, even flipped upside
   down;

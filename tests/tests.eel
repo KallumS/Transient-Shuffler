@@ -51,19 +51,20 @@ function max_step(d, i0, n) local(e, k, dl)
 
 // Every part of a result is what it should be: the attack (scaled), the
 // crossfade without a jump, then the body exactly.
-function check_hybrid(d, a, b, label) local(pre, g, lag, onA, onB, n1, i2, n2, step, stepA, stepB)
+function check_hybrid(d, a, b, label) local(pre, g, lag, onA, onB, n1, i2, n2, step, stepA, stepB, s0, xf)
 (
+  s0 = s_s0[d]; xf = s_xf[d];
   pre = s_on[d]; g = s_gain[d] * s_pol[d]; lag = s_lag[d];
   onA = s_on[a]; onB = s_on[b];
-  n1 = pre + s0_s;
+  n1 = pre + s0;
   check(max_diff(d, 0, a, onA - pre, n1, g) < 0.000000001, label);
-  i2 = pre + s0_s + xf_s;
+  i2 = pre + s0 + xf;
   n2 = s_len[d] - i2;
   check(s_len[d] == min(MAXLEN, pre + s_len[b] - onB - lag), label);
-  check(max_diff(d, i2, b, onB + s0_s + xf_s + lag, n2, 1) < 0.000000001, label);
-  step = max_step(d, n1 - 50, xf_s + 100);
-  stepA = abs(g) * max_step(a, onA + s0_s - 50, xf_s + 100);
-  stepB = max_step(b, onB + s0_s + lag - 50, xf_s + 100);
+  check(max_diff(d, i2, b, onB + s0 + xf + lag, n2, 1) < 0.000000001, label);
+  step = max_step(d, n1 - 50, xf + 100);
+  stepA = abs(g) * max_step(a, onA + s0 - 50, xf + 100);
+  stepB = max_step(b, onB + s0 + lag - 50, xf + 100);
   smooth_off ? 0 : check(step <= 1.5 * max(stepA, stepB) + 0.02, label);
 );
 
@@ -97,7 +98,7 @@ align_on = 1;
 
 // Edge sizes: shortest and longest attack, shortest and longest crossfade.
 attack_ms = 2; xfade_ms = 100; fresh();
-check(xf_s <= 2 * att_s && s0_s >= 0, "a crossfade never starts before the hit");
+check(s0_s == att_s && s0_s >= 1, "the crossfade starts where the attack ends, never before the hit");
 check_hybrid(2, 1, 0, "2 ms attack, crossfade clamped");
 attack_ms = 250; xfade_ms = 0.5; fresh();
 check_hybrid(2, 1, 0, "250 ms attack, 0.5 ms crossfade");
@@ -128,6 +129,75 @@ align_on = 1; match_on = 1; attack_ms = 30; xfade_ms = 10;
 synth(0, lenA, 2400, 50, 0.6, 0, 0);
 s_len[1] = 0; fresh();
 check(s_len[2] == 0 && s_len[3] == 0, "no result until both samples are in");
+synth(1, 30000, 700, 90, 0.08, 0.9, 1); fresh();
+
+
+// ---- Finding the attack -------------------------------------------------------------
+// Sounds whose attack ends at a known place: a burst of noise (the click)
+// over a tone or a noise tail (the body).
+function make_hit(src, n, on, click_amp, click_tau, body_amp, body_f, body_tau, body_noise, rise) local(i, t, x, bl, br)
+(
+  bl = s_L[src]; br = s_R[src]; i = 0;
+  loop(n,
+    t = (i - on) / srate;
+    x = i < on ? (rand(2) - 1) * 0.0003 :
+        click_amp * (rand(2) - 1) * exp(-t / click_tau) +
+        body_amp * min(1, t / rise) * exp(-t / body_tau) * (body_noise ? (rand(2) - 1) : sin(2 * $pi * body_f * t));
+    bl[i] = x; br[i] = x;
+    i += 1;
+  );
+  s_len[src] = n;
+);
+function ms(samples) ( samples / srate * 1000; );
+
+match_on = 1; align_on = 1; snap_on = 0; find_on = 1; attack_ms = 30; xfade_ms = 2;
+make_hit(0, 48000, 1000, 0.7, 0.003, 0.6, 110, 0.8, 0, 0.004);    // a pluck: a pick, then a string
+make_hit(1, 48000, 1000, 0.9, 0.002, 0.8, 55, 0.25, 0, 0.002);    // a kick: a beater click, then a boom
+fresh();
+check(ms(s_tend[0]) >= 3 && ms(s_tend[0]) <= 15, "a pluck's attack ends with the pick (3-15 ms)");
+check(ms(s_tend[1]) >= 2 && ms(s_tend[1]) <= 12, "a kick's attack ends with the click (2-12 ms), though the boom is louder");
+check(s_att[2] == s_tend[1] && s_att[3] == s_tend[0], "each result splices where its attack sample's attack ends");
+check_hybrid(2, 1, 0, "a result spliced at a found attack is exact");
+check_hybrid(3, 0, 1, "and the other way round");
+
+make_hit(0, 48000, 1000, 0.9, 0.004, 0.35, 0, 0.12, 1, 0.001);    // a snare: a crack, then the wires
+fresh();
+check(ms(s_tend[0]) >= 4 && ms(s_tend[0]) <= 30, "a snare's attack ends with the crack, not the wires (4-30 ms)");
+
+// A slow swell has no attack to find: the Attack length setting is used.
+bl = s_L[0]; i = 0;
+loop(48000, t = (i - 1000) / srate; bl[i] = s_R[0][i] = i < 1000 ? 0 : 0.6 * min(1, t / 0.15) * sin(2 * $pi * 220 * t); i += 1;);
+s_len[0] = 48000; fresh();
+check(s_tend[0] == 0, "a slow swell has no attack to find");
+check(s_att[3] == att_s, "so its result uses the Attack length setting");
+
+find_on = 0; fresh();
+check(s_att[2] == att_s && s_att[3] == att_s, "with Find attack off, both results use Attack length");
+
+// ---- Snap to zero crossings ---------------------------------------------------------
+function mono(src, i) ( (i >= 0 && i < s_len[src]) ? s_L[src][i] + s_R[src][i] : 0; );
+function nearness(d, a, b, t) local(ra, rb, k, W)
+(
+  // how far from zero both sounds are at t, each against its level nearby
+  W = floor(0.005 * srate); ra = rb = 0; k = -W;
+  loop(2 * W + 1, ra += sqr(mono(a, s_on[a] + t + k)); rb += sqr(mono(b, s_on[b] + t + k + s_lag[d])); k += 1;);
+  abs(mono(a, s_on[a] + t)) / sqrt(ra / (2 * W + 1)) + abs(mono(b, s_on[b] + t + s_lag[d])) / sqrt(rb / (2 * W + 1));
+);
+make_hit(0, 96000, 2400, 0, 0.002, 0.8, 50, 0.6, 0, 0.001);       // an 808
+make_hit(1, 30000, 700, 0.9, 0.002, 0.8, 90, 0.08, 0, 0.002);     // a punchy kick
+find_on = 0; snap_on = 0; attack_ms = 31.3; xfade_ms = 0.5; fresh();
+before_cost = nearness(2, 1, 0, s_att[2]); before_att = s_att[2];
+snap_on = 1; fresh();
+check(abs(s_att[2] - before_att) <= floor(0.005 * srate), "snapping moves the splice 5 ms at most");
+check(nearness(2, 1, 0, s_att[2]) < before_cost, "to where both sounds are nearer zero");
+check(nearness(2, 1, 0, s_att[2]) < 0.3, "close to a shared zero crossing");
+check(s_s0[2] == s_att[2], "the crossfade starts at the snapped splice");
+check_hybrid(2, 1, 0, "a snapped result is exact");
+check_hybrid(3, 0, 1, "both ways");
+find_on = 1; fresh();
+check_hybrid(2, 1, 0, "found and snapped together, still exact");
+snap_on = 0; find_on = 0; attack_ms = 30; xfade_ms = 10;
+synth(0, lenA, 2400, 50, 0.6, 0, 0);
 synth(1, 30000, 700, 90, 0.08, 0.9, 1); fresh();
 
 // ---- Playing ----------------------------------------------------------------------
@@ -183,7 +253,7 @@ mouse_x = cell_x(0) + cw / 2; frame();
 mouse_cap = 1; frame(); mouse_cap = 0; frame(); mouse_cap = 1; frame();
 check(attack_ms == 30, "a double-click puts the slider back");
 mouse_cap = 0; frame();
-check(cell_y(7) + 44 < sep_y && sep_y < rowA_y, "the controls sit above the waveforms, none at the bottom");
+check(cell_y(9) + 44 < sep_y && sep_y < rowA_y, "the controls sit above the waveforms, none at the bottom");
 
 // Scroll to zoom.
 mouse_x = wx + ww / 2; mouse_y = rowB_y + 10; span = view_t1 - view_t0;
@@ -191,10 +261,29 @@ mouse_wheel = 240; frame();
 check(view_mode == 2 && view_t1 - view_t0 < span, "scrolling up zooms in");
 
 // Click the Align phase box.
-was = align_on; mouse_x = cell_x(6) + 8; mouse_y = cell_y(6) + 16 + 14; mouse_cap = 1; frame(); mouse_cap = 0; frame();
+was = align_on; mouse_x = cell_x(8) + 8; mouse_y = cell_y(8) + 16 + 14; mouse_cap = 1; frame(); mouse_cap = 0; frame();
 check(align_on == !was, "clicking Align phase switches it");
 mouse_cap = 1; frame(); mouse_cap = 0; frame();
 check(align_on == was, "and back");
+
+// Find attack: the slider shows what was found; moving it, or dragging
+// the splice, is a choice made by hand and turns Find attack off.
+mouse_x = cell_x(5) + 8; mouse_y = cell_y(5) + 16 + 14; mouse_cap = 1; frame(); mouse_cap = 0; frame();
+check(find_on == 1 && (stub_automated & 1024), "clicking Find attack turns it on");
+frame();
+check(abs(att_shown - s_tend[1] / srate * 1000) < 0.1, "Attack length shows the attack that was found");
+check(abs(att_s - s_tend[1]) < 1, "and the splice is drawn there");
+mouse_x = cell_x(0) + 8 + 0.5 * (cw - 16); mouse_y = cell_y(0) + 30; mouse_cap = 1; frame(); mouse_cap = 0; frame();
+check(find_on == 0, "moving Attack length turns Find attack off");
+find_on = 1; dirty = 1; frame(); frame();
+mouse_x = splice_x; mouse_y = rowA_y + 10; frame(); mouse_cap = 1; frame(); mouse_x += 30; frame(); mouse_cap = 0; frame();
+check(find_on == 0, "so does dragging the splice");
+mouse_x = cell_x(6) + 8; mouse_y = cell_y(6) + 16 + 14; mouse_cap = 1; frame(); mouse_cap = 0; frame(); frame();
+check(snap_on == 1 && (stub_automated & 2048), "clicking Snap to zero crossings turns it on");
+check(abs(att_s - attack_ms / 1000 * srate) <= floor(0.005 * srate) + 1, "the drawn splice is the snapped one");
+mouse_cap = 1; frame(); mouse_cap = 0; frame();
+check(snap_on == 0, "and off");
+mouse_x = mouse_y = -1; frame();
 
 // Choose the other result, then Play, which becomes Stop while it sounds.
 mouse_x = pad + 20; mouse_y = rowR_y + 64 + 10; mouse_cap = 1; frame(); mouse_cap = 0; frame();
