@@ -1,7 +1,9 @@
 # 0002 - Line up the hits and swap whole sections of sound
 
 - **Date:** 2026-10-15
-- **Status:** Accepted
+- **Status:** Accepted. Where the crossfade sits is replaced by
+  [0012](0012-find-where-the-attack-ends.md): it now starts at the attack
+  length instead of being centred on it.
 
 ## Context
 

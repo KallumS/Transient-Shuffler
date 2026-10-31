@@ -8,3 +8,4 @@ looked broken and wasn't.
 | | |
 | --- | --- |
 | [2026-10-15](2026-10-15.md) | From an empty repository to the plug-in: the swap, the window in the house colours, a test harness that runs the JSFX outside REAPER, then a review against Apple's HIG Foundations and the changes it led to. |
+| [2026-10-25](2026-10-25.md) | Find attack: where each sample's attack ends, from its level and its brightness. Snap to zero crossings for both sounds at once. The crossfade now starts at the attack length. |

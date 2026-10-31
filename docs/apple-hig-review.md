@@ -100,9 +100,29 @@ These pages cover things this plugin doesn't have:
 - Images;
 - Spatial layout and Immersive experiences (visionOS).
 
+## Added since
+
+2026-10-25: *Find attack* and *Snap to zero crossings* (decisions 0012 and
+0013) meet the same rules as everything above:
+
+- **Built the same way.** Both are checkboxes made by the same code as the
+  others, so they are reached with Tab, pressed with Return or Space, and
+  draw a focus ring.
+- **Hints.** Each hint starts with the control's name and says what it does.
+- **Feedback.**
+  - Attack length shows what was found ("7.0 ms, found").
+  - It shows where snapping moved the splice ("31.3 → 29.9 ms").
+  - Marks under A and B show where each attack ends.
+  - Each mark is a shape as well as a colour.
+- **Your choice wins.** Choosing the splice by hand turns Find attack off,
+  rather than having the two fight.
+
+The window now opens at 820 × 704, so the third row of controls fits. The
+controls still sit above the waveforms.
+
 ## Checked by
 
-- `tests/run_tests.py` runs the plugin's own code through 677 checks. These
+- `tests/run_tests.py` runs the plugin's own code through 797 checks. These
   cover keyboard focus, arrow keys, Play turning into Stop, Undo, messages
   staying until dismissed, interface size, choosing the font, and the
   controls sitting above the waveforms.

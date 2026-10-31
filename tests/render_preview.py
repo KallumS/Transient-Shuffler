@@ -65,9 +65,9 @@ function synth(src, n, on, f0, decay, click, seed) local(bl, br, i, t, ph, x)
 );
 function frame(name) ( printf("BEGIN\t%s\t%d\t%d\n", name, gfx_w, gfx_h); sec_gfx(); printf("END\n"); );
 
-gfx_ext_retina = 2; gfx_w = 1640; gfx_h = 1280; mouse_x = mouse_y = -1;
+gfx_ext_retina = 2; gfx_w = 1640; gfx_h = 1408; mouse_x = mouse_y = -1;
 attack_ms = 30; xfade_ms = 10; trim_db = 0; match_on = 1; align_on = 1; onset_db = -30;
-result_sel = 0; midi_plays = 0; out_db = 0; thru_on = 1; view_mode = 1; ui_zoom = 1;
+result_sel = 0; midi_plays = 0; out_db = 0; thru_on = 1; view_mode = 1; ui_zoom = 1; find_on = 1; snap_on = 0;
 
 frame("empty");
 
@@ -99,11 +99,16 @@ s_err[1] = 0; synth(1, 30000, 700, 90, 0.08, 0.9, 1); strcpy(#nameB, "Punchy Kic
 view_mode = 0; result_sel = 1; dirty = 1;
 frame("whole");
 
-gfx_ext_retina = 1; gfx_w = 820; gfx_h = 640; view_mode = 1; result_sel = 0; dirty = 1;
+gfx_ext_retina = 1; gfx_w = 820; gfx_h = 704; view_mode = 1; result_sel = 0; dirty = 1;
 frame("small");
 
+// Find attack off, Snap to zero crossings on, the splice set by hand.
+gfx_ext_retina = 2; gfx_w = 1640; gfx_h = 1408; find_on = 0; snap_on = 1; attack_ms = 31.3; xfade_ms = 2; dirty = 1;
+frame("snap");
+find_on = 1; snap_on = 0; attack_ms = 30; xfade_ms = 10; dirty = 1;
+
 // 200% interface size in a window big enough for it.
-ui_zoom = 2; gfx_w = 1640; gfx_h = 1280; dirty = 1;
+ui_zoom = 2; gfx_w = 1640; gfx_h = 1408; dirty = 1;
 frame("zoom200");
 """
 
