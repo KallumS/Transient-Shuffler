@@ -8,6 +8,14 @@ samples on it. The result keeps **A's body** (its sustain and tail) and takes
 
 ## Install
 
+**With ReaPack** (easiest, and it keeps it up to date): Extensions ->
+ReaPack -> Import repositories, paste
+`https://raw.githubusercontent.com/KallumS/Transient-Shuffler/main/index.xml`,
+then Browse packages, find Transient Shuffler and Install. That link only works
+once this has been merged into the main branch.
+
+**By hand:**
+
 1. Copy `TransientShuffler.jsfx` into REAPER's `Effects` folder (*Options →
    Show REAPER resource path*, then open `Effects`).
 2. On a track, add the FX **JS: Transient Shuffler**.
