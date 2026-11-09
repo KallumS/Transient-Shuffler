@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ReaPack index for Transient Shuffler.
+
+  Add this repository in REAPER with Extensions > ReaPack > Import repositories,
+  pasting the raw URL of this file on the default branch:
+
+    https://raw.githubusercontent.com/KallumS/Transient-Shuffler/main/index.xml
+
+  That URL only resolves once this file is on the default branch.
+
+  Each <source> is pinned to a commit rather than a branch, so an installed
+  version is the exact set of files that was tested and cannot change
+  underneath anyone. Publishing a new version means adding a <version> block
+  with a fresh commit hash - never editing an existing one.
+
+  One package: the JSFX. Needs REAPER 6.05 or later.
+
+  ReaPack keys an installed package by its NAME, so renaming a file is not an
+  upgrade. Rename sparingly.
+-->
+<index version="1" name="Transient Shuffler">
+  <category name="Sampler">
+
+    <reapack name="TransientShuffler.jsfx" type="effect" desc="Transient Shuffler">
+      <version name="1.0" author="kallums" time="2026-10-31T23:23:27Z">
+        <changelog><![CDATA[First release through ReaPack. Gives one sample the attack of another: drop two samples on it and the result keeps A's body and takes B's attack, or the other way round.]]></changelog>
+        <source main="main">https://raw.githubusercontent.com/KallumS/Transient-Shuffler/30ca4510e9b4070860111218bdad800ed72aebdf/TransientShuffler.jsfx</source>
+      </version>
+      <metadata>
+        <description><![CDATA[{\pard Transient Shuffler\par
+Gives one sample the attack of another. Drop two samples on it: the result keeps A's body (its sustain and tail) and takes B's attack, or the other way round.\par
+Needs REAPER 6.05 or later.\par
+}]]></description>
+        <link rel="website">https://github.com/KallumS/Transient-Shuffler</link>
+      </metadata>
+    </reapack>
+
+  </category>
+</index>
