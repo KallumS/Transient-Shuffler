@@ -1,0 +1,45 @@
+{
+  "name": "Transient Shuffler",
+  "slug": "TransientShuffler",
+  "kind": "instrument",
+  "template": "jsfx_audio",
+  "width": 260,
+  "hello": "Show Window opens Transient Shuffler's own window.",
+  "device": {
+    "main": "TransientShuffler.jsfx",
+    "audio": true,
+    "fromWindow": [
+      "ui_trig",
+      "ui_trig_src",
+      "ui_stop"
+    ],
+    "drops": true
+  },
+  "files": {
+    "TransientShuffler.jsfx": "../TransientShuffler.jsfx"
+  },
+  "buttons": [],
+  "scripts": [
+    "kit/runtime/jsfx.js",
+    "kit/gfx.js",
+    "kit/live.js",
+    "actions.js",
+    "kit/jsfx_device.js"
+  ],
+  "memory": "buffer",
+  "from_window": [
+    "ui_trig",
+    "ui_trig_src",
+    "ui_stop"
+  ],
+  "drops": [
+    [
+      "Sample A",
+      "A"
+    ],
+    [
+      "Sample B",
+      "B"
+    ]
+  ]
+}
