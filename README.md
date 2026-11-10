@@ -8,6 +8,8 @@ samples on it. The result keeps **A's body** (its sustain and tail) and takes
 
 **In Ableton Live:** `ableton/` has Transient Shuffler as a Max for Live instrument. See [`ableton/README.md`](ableton/README.md).
 
+![Transient Shuffler in Ableton Live](ableton/window.png)
+
 ## Install
 
 **With ReaPack** (easiest, and it keeps it up to date): Extensions ->

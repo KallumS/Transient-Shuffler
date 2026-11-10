@@ -32,7 +32,7 @@ The controls and the two sounds' paths are saved with the Live set; the sounds a
 ableton/device.json` writes the `.amxd`, the `.maxpat` and the script bundle
 `TransientShuffler.js`. The bundle is Middaw's EEL2 runtime, `TransientShuffler.jsfx` for the window and the splicing, and `ableton/actions.js` (reading sounds, copying them to gen~); the gen~ code inside the device is `TransientShuffler.jsfx` translated by `ableton/kit/jsfx2gen.js` at build time, with its memory in a buffer~ the window writes. See `ableton/kit/VENDORED.md`.
 
-`node --test ableton/tests/test_device.js` loads two sounds through the strip's drops, checks both results are built and copied frame for frame to the memory gen~ plays from, then plays a note through the gen~ code read back out of the built device beside Middaw's runtime playing the same note: the same samples, within 10⁻⁶. It also checks a saved set reads its sounds again, the window draws and answers clicks, and every control reaches gen~.
+`node --test ableton/tests/test_device.js` loads two sounds through the strip's drops, checks both results are built and copied frame for frame to the memory gen~ plays from, then plays a note through the gen~ code read back out of the built device beside Middaw's runtime playing the same note: the same samples, within 10⁻⁶. It also checks a saved set reads its sounds again, the window draws and answers clicks, and every control reaches gen~. `node ableton/window.js` redraws the picture above from the device's own drawing code (it needs Playwright's Chromium).
 
 ## Limits
 

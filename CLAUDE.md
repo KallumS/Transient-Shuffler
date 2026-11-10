@@ -189,3 +189,17 @@ tests stub out:
   in the tests.
 
 The latest session log's "Not done yet" lists the rest.
+
+## The Ableton device (branch `ableton`)
+
+`ableton/` is Transient Shuffler as a Max for Live instrument, for Live 12.1 or later (it runs on Max 9's JavaScript, in a `[v8ui]`). It is on this branch only: `ableton` is `main` with the device added, so REAPER work goes on `main` and is merged in (`git merge main`). `ableton/README.md` is the musician's guide to it.
+
+- **Build**: `python3 ableton/kit/build.py ableton/device.json` writes the `.amxd`, the `.maxpat` and the bundle `TransientShuffler.js`; with `--check` it fails if they are stale. Rebuild after any change to the code it carries, the kit or `device.json`, and commit what it writes: the user copies those files straight into Live.
+- **Test**: `node --test ableton/tests/test_device.js`, on a pretend Max and a pretend Live set (`ableton/kit/test/max.js`).
+- **Picture**: `node ableton/window.js` redraws `ableton/window.png` (two sounds swapping attacks), the picture in both READMEs, from the device's own drawing code on that pretend Max; it needs Playwright's Chromium. Redraw it after any change to what the device shows, and look at it.
+- **The kit is shared.** `ableton/kit/` is the same in all eighteen family repositories with a device: change it in one, copy it to all, rebuild and test each. `ableton/kit/runtime/` is Middaw's `runtime/`, copied unchanged - fix Middaw, then copy. `ableton/kit/VENDORED.md` has the commits.
+- **Not yet opened in Live.** Everything is tested against stand-ins for Max and the Live Object Model; say so rather than claim it works in Live.
+- **The sound is `TransientShuffler.jsfx`'s DSP translated to gen~** by `ableton/kit/jsfx2gen.js` at build time; the window is the JSFX's own, on Middaw's runtime, sending every slider to gen~. The tests read the gen~ code back out of the built device and run it as JavaScript beside the runtime, sample for sample. **gen~ itself has not compiled it yet**: the first time it opens in Max is the first real test.
+- The EEL2 traps above bind the translator too, and one more: gen~'s memory is fixed when the device is built (`memory` in `device.json`), and a test fails if what the plug-in can reach is ever larger. A change to the DSP that grows a buffer may need it raised.
+- The window's copy of the plug-in hears no audio, so anything it draws from the sound (a meter, a scope) stays still.
+- `ableton/actions.js` reads the two sounds dropped on the device strip into the plug-in and copies its memory to the buffer~ gen~ plays from. Print has no equivalent in Live.
