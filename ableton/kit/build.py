@@ -130,6 +130,23 @@ def midi_effect(desc, width):
     return p
 
 
+def inline_midi(desc, width):
+    """A small window shown on the device itself (ScaleView): MIDI through the
+    [v8ui], no Show Window."""
+    gw, gh = desc.get("window", [200, 100])
+    p = Patch()
+    mi = p.add("midiin", at=(20, 20), size=(50, 22), outs=1, outtype=["int"])
+    dev = p.add("live.thisdevice", at=(120, 20), size=(90, 22), outs=3, outtype=["bang", "int", "int"])
+    ui = p.add(maxclass="v8ui", at=(20, 80), size=(gw, gh), ins=1, outs=3, filename=desc["_bundle"],
+               parameter_enable=0, border=0, presentation=1, presentation_rect=[0.0, 0.0, float(gw), float(gh)])
+    mo = p.add("midiout", at=(20, 420), size=(55, 22), ins=1, outs=0)
+    st = p.state(at=(200, 420))
+    pre = p.add("prepend restore", at=(200, 460), size=(95, 22), outs=1)
+    p.wire(mi, 0, ui, 0); p.wire(dev, 0, ui, 0); p.wire(ui, 0, mo, 0)
+    p.wire(ui, 1, st, 0); p.wire(st, 0, pre, 0); p.wire(pre, 0, ui, 0)
+    return p
+
+
 def jsfx_midi(desc, width):
     """A JSFX's own window, in a subpatcher the strip's Show Window opens; its
     code runs whether the window is open or not. The strip has the device's
@@ -277,7 +294,7 @@ def jsfx_audio(desc, width):
     return p
 
 
-TEMPLATES = {"midi_effect": midi_effect, "jsfx_midi": jsfx_midi, "jsfx_audio": jsfx_audio}
+TEMPLATES = {"midi_effect": midi_effect, "jsfx_midi": jsfx_midi, "jsfx_audio": jsfx_audio, "inline_midi": inline_midi}
 
 
 def amxd(kind, patcher):
@@ -296,6 +313,8 @@ def build(desc_path, check=False):
     slug = desc.get("slug") or desc["name"].replace(" ", "")
     desc["_bundle"] = slug + ".js"
     width = desc.get("width", 860)
+    if desc.get("template") == "inline_midi":
+        width = desc.get("window", [200, 100])[0]
     desc["_base"] = base
     if desc.get("template") in ("jsfx_midi", "jsfx_audio") and "window" not in desc:
         import re
