@@ -9,6 +9,7 @@ const { load } = require('../kit/test/max.js');
 const genexpr = require('../kit/test/genexpr.js');
 const J = require('../kit/runtime/jsfx.js');
 const suite = require('../kit/test/audio_suite.js');
+require('../kit/test/palette_suite.js')();
 
 const ROOT = path.join(__dirname, '..', '..');
 const JSFX = path.join(ROOT, 'TransientShuffler.jsfx');
